@@ -1,7 +1,7 @@
 /* QueryDoctor service worker: cache the app shell for instant loads and
    offline opens; NEVER cache /api responses — checks stay in memory only. */
 
-const CACHE = "querydoctor-v5";
+const CACHE = "querydoctor-v6";
 const SHELL = [".", "index.html", "style.css", "app.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
 
 self.addEventListener("install", (e) => {

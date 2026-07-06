@@ -2,6 +2,7 @@
 
 **Is your SQL healthy? Instant check-up, plain-English diagnosis.**
 
+[![CI](https://github.com/ARAVINDHRAJA123/querydoctor/actions/workflows/ci.yml/badge.svg)](https://github.com/ARAVINDHRAJA123/querydoctor/actions)
 [![Live App](https://img.shields.io/badge/Live_App-querydoctor.run.app-0ea371?style=for-the-badge&logo=googlecloud&logoColor=white)](https://querydoctor-616665622891.asia-south1.run.app)
 [![Dialects](https://img.shields.io/badge/Dialects-10_supported-14b8a6?style=for-the-badge&logo=databricks&logoColor=white)](#-supported-dialects)
 [![No AI](https://img.shields.io/badge/Engine-sqlglot,_zero_LLM-06b6d4?style=for-the-badge&logo=python&logoColor=white)](#-how-it-works)

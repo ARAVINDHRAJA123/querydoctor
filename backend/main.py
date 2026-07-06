@@ -9,15 +9,33 @@ Nothing is stored; every check happens in memory and is forgotten.
 import difflib
 import os
 import re
+import time
+from collections import defaultdict, deque
 
 import sqlglot
 from sqlglot import exp
+from sqlglot.optimizer import optimize as sqlglot_optimize
+from sqlglot.optimizer.simplify import simplify as sqlglot_simplify
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 MAX_SQL_CHARS = 100_000
+RATE_LIMIT = 60             # checks per IP per window (checks are cheap)
+RATE_WINDOW_S = 600
+_hits: dict[str, deque] = defaultdict(deque)
+
+
+def _rate_limited(ip: str) -> bool:
+    now = time.monotonic()
+    q = _hits[ip]
+    while q and now - q[0] > RATE_WINDOW_S:
+        q.popleft()
+    if len(q) >= RATE_LIMIT:
+        return True
+    q.append(now)
+    return False
 DIALECTS = ["bigquery", "postgres", "mysql", "snowflake", "spark", "sqlite", "tsql", "oracle", "duckdb", "redshift"]
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend")
 
@@ -172,7 +190,11 @@ def _typo_hint(sql: str) -> str | None:
 
 
 @app.post("/api/check")
-async def check(req: CheckRequest):
+async def check(req: CheckRequest, request: Request):
+    fwd = request.headers.get("x-forwarded-for")
+    ip = fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "unknown")
+    if _rate_limited(ip):
+        return JSONResponse({"ok": False, "error": "Too many checks right now — take a short break and try again."}, status_code=429)
     sql = req.sql.strip()
     dialect = req.dialect if req.dialect in DIALECTS else "bigquery"
     if not sql:
@@ -220,7 +242,34 @@ async def check(req: CheckRequest):
     except Exception:
         formatted = None
 
-    # 4. Optional translation
+    # 4. Optimized rewrite (deterministic, no schema required for the fallback
+    # path). Full optimize() needs column-level schema; without one it can
+    # raise — degrade gracefully: full optimize → simplify only → skip.
+    optimized = None
+    try:
+        opt_trees = []
+        for t in trees:
+            try:
+                ot = sqlglot_optimize(t.copy(), dialect=dialect)
+            except Exception:
+                ot = sqlglot_simplify(t.copy())
+            opt_trees.append(ot)
+        candidate = ";\n\n".join(ot.sql(dialect=dialect, pretty=True) for ot in opt_trees)
+
+        def _canon(q: str) -> str:
+            # Ignore cosmetic differences the optimizer introduces (auto-added
+            # aliases like `1 AS "1"`, identifier quoting, whitespace) so the
+            # card only appears for a REAL structural rewrite.
+            q = re.sub(r'\s+AS\s+"[^"]*"', "", q, flags=re.I)
+            q = q.replace('"', "").replace("`", "")
+            return re.sub(r"\s+", " ", q).strip().rstrip(";").lower()
+
+        if formatted and _canon(candidate) != _canon(formatted):
+            optimized = candidate + (";" if len(opt_trees) > 1 else "")
+    except Exception:
+        optimized = None
+
+    # 5. Optional translation
     translated = None
     if req.target_dialect and req.target_dialect in DIALECTS and req.target_dialect != dialect:
         try:
@@ -235,6 +284,7 @@ async def check(req: CheckRequest):
         "score": score,
         "findings": findings,
         "formatted": formatted,
+        "optimized": optimized,
         "translated": translated,
         "statement_count": len(trees),
     })

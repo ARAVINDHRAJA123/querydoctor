@@ -84,7 +84,7 @@ const RING_LEN = 326.7;
 
 function render(d) {
   $("results").hidden = false;
-  const cards = ["syntax-card", "findings-card", "formatted-card", "translated-card"];
+  const cards = ["syntax-card", "findings-card", "formatted-card", "optimized-card", "translated-card"];
   cards.forEach((c) => ($(c).hidden = true));
 
   if (!d.valid) {
@@ -134,6 +134,10 @@ function render(d) {
   if (d.formatted) {
     $("formatted-card").hidden = false;
     $("formatted-code").textContent = d.formatted;
+  }
+  if (d.optimized) {
+    $("optimized-card").hidden = false;
+    $("optimized-code").textContent = d.optimized;
   }
   if (d.translated) {
     $("translated-card").hidden = false;
