@@ -1,7 +1,7 @@
 name: 'QueryDoctor SQL Review'
 description: >-
-  Lints changed .sql files in a pull request with QueryDoctor (sqlglot-based,
-  no LLM, nothing leaves the workflow run) and posts findings as a PR comment.
+  Lints changed .sql files in a pull request (sqlglot-based, no LLM) and
+  posts the findings as a PR comment.
 author: 'Aravindhraja R'
 branding:
   icon: 'activity'
