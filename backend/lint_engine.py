@@ -114,6 +114,14 @@ def _rule_having_no_aggregate(tree):
             return
 
 
+def _rule_order_by_in_subquery(tree):
+    for sel in tree.find_all(exp.Select):
+        if sel.args.get("order") and not sel.args.get("limit") and isinstance(sel.parent, (exp.Subquery, exp.CTE)):
+            yield ("low", "ORDER BY in a subquery without LIMIT",
+                   "Most engines discard ORDER BY inside a subquery/CTE unless it's paired with LIMIT — the sort runs but the outer query sees no guaranteed order. Move the ORDER BY to the outermost query, or add a LIMIT here if you meant to cap rows.")
+            return
+
+
 def _rule_group_by_missing_column(tree):
     for sel in tree.find_all(exp.Select):
         group = sel.args.get("group")
@@ -140,6 +148,7 @@ RULES = [
     _rule_union_vs_union_all,
     _rule_having_no_aggregate,
     _rule_group_by_missing_column,
+    _rule_order_by_in_subquery,
 ]
 
 SEV_WEIGHT = {"high": 30, "medium": 12, "low": 5}

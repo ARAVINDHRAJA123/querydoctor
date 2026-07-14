@@ -85,6 +85,16 @@ def test_group_by_complete_is_clean():
     titles = {f["title"] for f in d["findings"]}
     assert "Selected column missing from GROUP BY" not in titles
 
+def test_order_by_in_subquery_no_limit():
+    d = check("SELECT * FROM (SELECT a FROM t ORDER BY a) x").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "ORDER BY in a subquery without LIMIT" in titles
+
+def test_order_by_in_subquery_with_limit_is_clean():
+    d = check("SELECT * FROM (SELECT a FROM t ORDER BY a LIMIT 10) x").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "ORDER BY in a subquery without LIMIT" not in titles
+
 def test_empty_input():
     r = check("   ")
     assert r.status_code == 422 and r.json()["ok"] is False
