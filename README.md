@@ -1,33 +1,91 @@
 # 🩺 QueryDoctor
 
-**Is your SQL healthy? Instant check-up, plain-English diagnosis.**
+**Paste SQL, get a diagnosis: syntax errors with typo hints, an 11-rule lint
+pass, a 0–100 health score, and translation across 10 SQL dialects — all
+without an LLM.**
 
 [![CI](https://img.shields.io/github/actions/workflow/status/ARAVINDHRAJA123/querydoctor/ci.yml?style=for-the-badge&logo=githubactions&logoColor=white&label=CI)](https://github.com/ARAVINDHRAJA123/querydoctor/actions)
 [![Live App](https://img.shields.io/badge/Live_App-querydoctor.run.app-0ea371?style=for-the-badge&logo=googlecloud&logoColor=white)](https://querydoctor-616665622891.asia-south1.run.app)
 [![Dialects](https://img.shields.io/badge/Dialects-10_supported-14b8a6?style=for-the-badge&logo=databricks&logoColor=white)](#-supported-dialects)
-[![No AI](https://img.shields.io/badge/Engine-sqlglot,_zero_LLM-06b6d4?style=for-the-badge&logo=python&logoColor=white)](#-how-it-works)
-
-Paste SQL → tap **Diagnose** → get a syntax check, a 0–100 health score, and advice
-anyone can follow — even if you started learning SQL yesterday.
+[![No AI](https://img.shields.io/badge/Engine-sqlglot,_zero_LLM-06b6d4?style=for-the-badge&logo=python&logoColor=white)](#-why-no-ai)
+[![Tests](https://img.shields.io/badge/Tests-118_passing-22c55e?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 **🔗 Try it now: https://querydoctor-616665622891.asia-south1.run.app**
 
 ---
 
+## Example
+
+**Input**
+```sql
+SELCT user_id, name, count(*) FROM orders GROUP BY user_id
+```
+
+**Output**
+```
+❌ Syntax Error — Line 1, Col 14
+Invalid expression / Unexpected token
+💡 'SELCT' isn't a SQL command — did you mean SELECT?
+```
+
+Fix the typo, run it again:
+
+```
+💯 Health Score: 70/100
+
+🩹 Selected column missing from GROUP BY   (high, -30)
+   'name' is selected but not aggregated or listed in GROUP BY. Most
+   engines reject this outright; some (like older MySQL) silently pick
+   an arbitrary row's value — add it to GROUP BY or wrap it in an
+   aggregate.
+```
+
 ## ✨ What it does
 
-| | Feature |
+| Capability | Description |
 |---|---|
-| 🚑 | **Syntax check with typo hints** — `SELCT …` → *"'SELCT' isn't a SQL command — did you mean SELECT?"*, plus a caret pointing at the exact failing column |
-| 💯 | **Health score (0–100)** — animated ring, weighted by finding severity |
-| 🩹 | **9 lint rules in plain English** — `DELETE` without `WHERE`, joins without `ON`, `SELECT *`, `LIMIT` without `ORDER BY`, `%…` LIKE patterns, the `NOT IN` + NULL trap, functions that kill partition pruning, `UNION` vs `UNION ALL` |
-| ✨ | **Auto-formatting** — paste ugly SQL, copy back a clean version |
-| 🚀 | **Optimizer suggestions** — deterministic sqlglot rewrites (constant folding, dead-predicate elimination: `WHERE 1=1 AND a > 2+3` → `WHERE a > 5`); cosmetic-only diffs are suppressed |
-| 🔁 | **Dialect translation** — all 10×9 direction pairs verified (e.g. MySQL `IFNULL`/`GROUP_CONCAT` → BigQuery `COALESCE`/`STRING_AGG`) |
-| 🕐 | **Check-up history** — Claude/ChatGPT-style drawer, stored only in your browser |
-| 🌗 | **Dark / light mode** — circular-wipe transition, iOS-style springy buttons |
-| 🔒 | **Private & abuse-proof** — SQL checked in memory, never stored; no accounts; per-IP rate limiting |
-| 🤖 | **GitHub Action** — drop it into any repo's CI to lint changed `.sql` files on every PR ([setup](#-use-it-as-a-github-action)) |
+| 🚑 Syntax diagnosis | Parser errors with typo hints (`SELCT` → *did you mean SELECT?*) and a caret at the exact failing column |
+| 💯 Health score | 0–100, severity-weighted — see [how it's scored](#-how-the-health-score-works) |
+| 🩹 SQL linting | 11 AST-based rules — see the full list below |
+| ✨ Formatter | Paste ugly SQL, copy back a clean version |
+| 🚀 Optimizer | Deterministic sqlglot rewrites (constant folding, dead-predicate elimination); cosmetic-only diffs are suppressed |
+| 🔁 Dialect translation | All 10×9 direction pairs verified (e.g. MySQL `IFNULL`/`GROUP_CONCAT` → BigQuery `COALESCE`/`STRING_AGG`) |
+| 🕐 Check-up history | Local-only drawer, stored in your browser |
+| 🌗 Dark / light mode | Circular-wipe transition |
+| 🔒 Privacy | SQL checked in memory, never stored; no accounts |
+| 🤖 GitHub Action | Lints changed `.sql` files on every PR ([setup](#-use-it-as-a-github-action)) |
+
+### The 11 lint rules
+
+`DELETE`/`UPDATE` without `WHERE` · `CROSS JOIN` · join without `ON`/`USING` ·
+`SELECT *` · `LIMIT` without `ORDER BY` · leading-`%` `LIKE` patterns ·
+`NOT IN` + subquery (the NULL trap) · function wrapped around a column in
+`WHERE` (kills index/partition pruning) · `UNION` vs `UNION ALL` · `HAVING`
+used without an aggregate (should be `WHERE`) · selected column missing from
+`GROUP BY`.
+
+## 💯 How the health score works
+
+Every check starts at 100. Each lint finding subtracts a fixed amount based
+on severity; a syntax error alone caps the check at "invalid" (no score).
+
+| Severity | Penalty | Example |
+|---|---|---|
+| High | −30 | `DELETE` without `WHERE`, join with no condition, missing `GROUP BY` column |
+| Medium | −12 | `SELECT *`, `LIMIT` without `ORDER BY`, `HAVING` without an aggregate |
+| Low | −5 | `UNION` vs `UNION ALL`, function wrapped around a column in `WHERE` |
+
+Findings are deduplicated by rule (each rule fires once per check), and the
+score floors at 0.
+
+## Limitations
+
+Being upfront about what this doesn't do:
+
+- No live database connection — doesn't validate that tables/columns actually exist
+- No execution cost estimation (that's what [sql-review-agent](https://github.com/ARAVINDHRAJA123/sql-review-agent), the BigQuery-specific sibling project, is for)
+- Dialect support is syntactic (via sqlglot), not semantic — e.g. dbt's `{{ jinja }}` templating isn't SQL and will read as a syntax error unless compiled first
+- Lint rules are structural pattern checks, not a full query optimizer — they catch common mistakes, not everything
 
 ## 📸 Screenshots
 
@@ -44,7 +102,7 @@ a pure-Python SQL parser/transpiler, plus hand-written lint rules over its AST:
 flowchart LR
     A["📱 Browser<br/>(PWA · service worker)"] -- "JSON: sql + dialect" --> B["⚡ FastAPI on Cloud Run"]
     B --> C["🌳 sqlglot parse<br/>syntax + typo hints"]
-    C --> D["🩺 9 AST lint rules<br/>severity-weighted score"]
+    C --> D["🩺 11 AST lint rules<br/>severity-weighted score"]
     D --> E["✨ format + transpile<br/>10 dialects"]
     E -- "diagnosis (nothing persisted)" --> A
 ```
@@ -52,6 +110,19 @@ flowchart LR
 **Tested like it matters:** the release battery runs 23 validity cases (including rare
 features per dialect — `QUALIFY`, `LATERAL FLATTEN`, `CONNECT BY`, recursive CTEs, `MERGE`,
 window frames) and **all 90 dialect-pair translations**, three consecutive runs, all green.
+
+## 🤖 Why no AI?
+
+QueryDoctor intentionally uses deterministic parsing (sqlglot's AST) instead
+of an LLM. That means: the same input always produces the same output, no
+hallucinated fixes, no API keys or per-check cost, and latency measured in
+milliseconds instead of seconds. The tradeoff is scope — it catches
+structural mistakes, not "is this query semantically correct for my
+business logic," which is exactly the line an LLM-based tool would blur.
+
+## 📊 By the numbers
+
+10 SQL dialects · 11 lint rules · 90 verified translation pairs · 118 tests passing
 
 ## 🗣 Supported dialects
 
@@ -112,6 +183,12 @@ jobs:
 | Android | Open the link in Chrome → tap **Install app** |
 | iPhone | Safari → Share → **Add to Home Screen** |
 | Windows / Mac | Chrome/Edge → install icon (⊕) in the address bar |
+
+## Use cases
+
+Learning SQL · interview prep · cross-database migration · ETL/dbt model
+review · code review before a PR merges · onboarding a team onto a new SQL
+dialect.
 
 ## 🧰 Stack
 

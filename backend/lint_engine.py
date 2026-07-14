@@ -105,6 +105,29 @@ def _rule_union_vs_union_all(tree):
             return
 
 
+def _rule_having_no_aggregate(tree):
+    for sel in tree.find_all(exp.Select):
+        having = sel.args.get("having")
+        if having and not having.find(exp.AggFunc):
+            yield ("medium", "HAVING used without an aggregate",
+                   "HAVING with no aggregate function just filters rows — that's what WHERE is for, and WHERE filters before grouping, which is cheaper. Move this condition to WHERE.")
+            return
+
+
+def _rule_group_by_missing_column(tree):
+    for sel in tree.find_all(exp.Select):
+        group = sel.args.get("group")
+        if not group:
+            continue
+        group_keys = {g.sql().lower() for g in group.expressions}
+        for e in sel.expressions:
+            col = e.this if isinstance(e, exp.Alias) else e
+            if isinstance(col, exp.Column) and not col.find(exp.AggFunc) and col.sql().lower() not in group_keys:
+                yield ("high", "Selected column missing from GROUP BY",
+                       f"'{col.sql()}' is selected but not aggregated or listed in GROUP BY. Most engines reject this outright; some (like older MySQL) silently pick an arbitrary row's value — add it to GROUP BY or wrap it in an aggregate.")
+                return
+
+
 RULES = [
     _rule_delete_update_no_where,
     _rule_cross_join,
@@ -115,6 +138,8 @@ RULES = [
     _rule_not_in_subquery,
     _rule_func_on_column_in_where,
     _rule_union_vs_union_all,
+    _rule_having_no_aggregate,
+    _rule_group_by_missing_column,
 ]
 
 SEV_WEIGHT = {"high": 30, "medium": 12, "low": 5}
