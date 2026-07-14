@@ -85,6 +85,7 @@ Being upfront about what this doesn't do:
 - No live database connection — doesn't validate that tables/columns actually exist
 - No execution cost estimation (that's what [sql-review-agent](https://github.com/ARAVINDHRAJA123/sql-review-agent), the BigQuery-specific sibling project, is for)
 - Dialect support is syntactic (via sqlglot), not semantic — e.g. dbt's `{{ jinja }}` templating isn't SQL and will read as a syntax error unless compiled first
+- **dbt models specifically**: raw `.sql` files under a dbt project (e.g. `models/**/*.sql`) almost always contain Jinja — `{{ ref(...) }}`, `{{ source(...) }}`, `{{ config(...) }}`, macros — which sqlglot cannot parse. Both the web app and the [GitHub Action](#-use-it-as-a-github-action) will report these as syntax errors, not real SQL problems. If you want to lint dbt models, run `dbt compile` first and point QueryDoctor at the compiled SQL in `target/compiled/` instead of the source files — this isn't automated yet
 - Lint rules are structural pattern checks, not a full query optimizer — they catch common mistakes, not everything
 
 ## 📸 Screenshots
