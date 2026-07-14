@@ -27,6 +27,7 @@ anyone can follow — even if you started learning SQL yesterday.
 | 🕐 | **Check-up history** — Claude/ChatGPT-style drawer, stored only in your browser |
 | 🌗 | **Dark / light mode** — circular-wipe transition, iOS-style springy buttons |
 | 🔒 | **Private & abuse-proof** — SQL checked in memory, never stored; no accounts; per-IP rate limiting |
+| 🤖 | **GitHub Action** — drop it into any repo's CI to lint changed `.sql` files on every PR ([setup](#-use-it-as-a-github-action)) |
 
 ## 📸 Screenshots
 
@@ -71,6 +72,38 @@ python3 -m venv venv && ./venv/bin/pip install -r requirements.txt
 ```bash
 gcloud run deploy querydoctor --source . --region asia-south1 --allow-unauthenticated
 ```
+
+## 🤖 Use it as a GitHub Action
+
+Catch bad SQL in pull requests before it merges — no API keys, no per-repo
+setup beyond one workflow file. On every PR, the action finds changed
+`.sql` files, runs them through the same lint engine as the web app, and
+posts (or updates) one comment with the findings. v1 is comment-only —
+it never fails the check or blocks the merge.
+
+```yaml
+# .github/workflows/sql-review.yml
+name: SQL Review
+on: pull_request
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write   # needed to post/update the review comment
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ARAVINDHRAJA123/querydoctor@main
+        with:
+          dialect: bigquery          # optional, default: bigquery
+          file-patterns: '**/*.sql'  # optional, comma-separated globs
+```
+
+| Input | Default | Description |
+|---|---|---|
+| `github-token` | `${{ github.token }}` | Used to read the PR's changed files and post the comment. |
+| `dialect` | `bigquery` | Any of the 10 supported dialects. |
+| `file-patterns` | `**/*.sql` | Comma-separated glob(s) matched against changed file paths (e.g. `models/**/*.sql,dbt/**/*.sql`). |
 
 ## 📲 Install it like an app
 

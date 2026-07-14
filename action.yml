@@ -1,0 +1,45 @@
+name: 'QueryDoctor SQL Review'
+description: >-
+  Lints changed .sql files in a pull request with QueryDoctor (sqlglot-based,
+  no LLM, nothing leaves the workflow run) and posts findings as a PR comment.
+author: 'Aravindhraja R'
+branding:
+  icon: 'activity'
+  color: 'green'
+
+inputs:
+  github-token:
+    description: 'Token used to read PR files and post the review comment.'
+    required: false
+    default: ${{ github.token }}
+  dialect:
+    description: >-
+      SQL dialect to lint against. One of: bigquery, postgres, mysql,
+      snowflake, spark, sqlite, tsql, oracle, duckdb, redshift.
+    required: false
+    default: 'bigquery'
+  file-patterns:
+    description: >-
+      Comma-separated glob pattern(s) matched against changed file paths.
+    required: false
+    default: '**/*.sql'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install sqlglot
+      shell: bash
+      run: pip install --quiet 'sqlglot>=30.0'
+
+    - name: Run QueryDoctor review
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        INPUT_DIALECT: ${{ inputs.dialect }}
+        INPUT_FILE_PATTERNS: ${{ inputs.file-patterns }}
+      run: python "${{ github.action_path }}/action/review_pr.py"
