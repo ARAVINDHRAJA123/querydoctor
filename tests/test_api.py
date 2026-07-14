@@ -65,6 +65,26 @@ def test_dangerous_delete():
     d = check("DELETE FROM t").json()
     assert d["findings"][0]["severity"] == "high"
 
+def test_having_without_aggregate():
+    d = check("SELECT dept, count(*) FROM t GROUP BY dept HAVING dept = 'eng'").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "HAVING used without an aggregate" in titles
+
+def test_having_with_aggregate_is_clean():
+    d = check("SELECT dept, count(*) c FROM t GROUP BY dept HAVING count(*) > 5").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "HAVING used without an aggregate" not in titles
+
+def test_group_by_missing_column():
+    d = check("SELECT user_id, name, count(*) FROM t GROUP BY user_id").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Selected column missing from GROUP BY" in titles
+
+def test_group_by_complete_is_clean():
+    d = check("SELECT user_id, count(*) FROM t GROUP BY user_id").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Selected column missing from GROUP BY" not in titles
+
 def test_empty_input():
     r = check("   ")
     assert r.status_code == 422 and r.json()["ok"] is False
