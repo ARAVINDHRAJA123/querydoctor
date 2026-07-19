@@ -1,3 +1,5 @@
 fastapi>=0.115
 uvicorn[standard]>=0.30
 sqlglot>=30.0
+stripe>=11.0
+google-cloud-firestore>=2.19

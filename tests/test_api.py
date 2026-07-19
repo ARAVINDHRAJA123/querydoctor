@@ -155,6 +155,23 @@ def test_dbt_mode_off_syntax_errors_on_jinja():
     d = r.json()
     assert d["ok"] and not d["valid"], d
 
+def test_fail_on_severity_ignored_without_api_key():
+    d = check("DELETE FROM t").json()
+    assert d.get("blocked") is False
+
+def test_billing_checkout_blocked_when_not_configured():
+    r = client.post("/api/billing/checkout", json={"tier": "team"})
+    assert r.status_code == 503
+
+def test_billing_webhook_blocked_when_not_configured():
+    r = client.post("/api/billing/webhook", content=b"{}")
+    assert r.status_code == 503
+
+def test_check_rejects_invalid_bearer_key():
+    r = client.post("/api/check", json={"sql": "SELECT 1"}, headers={"Authorization": "Bearer qd_live_bogus"})
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+
 def test_empty_input():
     r = check("   ")
     assert r.status_code == 422 and r.json()["ok"] is False

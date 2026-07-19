@@ -15,7 +15,10 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from lint_engine import DIALECTS, check_sql
+import billing
+from lint_engine import DIALECTS, SEV_WEIGHT, check_sql
+
+SEV_ORDER = ["low", "medium", "high"]  # ascending — index used for threshold comparison
 
 MAX_SQL_CHARS = 100_000
 RATE_LIMIT = 60             # checks per IP per window (checks are cheap)
@@ -56,24 +59,78 @@ class CheckRequest(BaseModel):
     dialect: str = "bigquery"
     target_dialect: str | None = None
     dbt_mode: bool = False
+    fail_on_severity: str | None = None  # "low"/"medium"/"high" — paid-tier only
 
 
 @app.post("/api/check")
 async def check(req: CheckRequest, request: Request):
-    fwd = request.headers.get("x-forwarded-for")
-    ip = fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "unknown")
-    if _rate_limited(ip):
-        return JSONResponse({"ok": False, "error": "Too many checks right now — take a short break and try again."}, status_code=429)
+    key = None
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer "):
+        key = billing.verify_api_key(auth[len("Bearer "):].strip())
+
+    if key is None:
+        fwd = request.headers.get("x-forwarded-for")
+        ip = fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "unknown")
+        if _rate_limited(ip):
+            return JSONResponse({"ok": False, "error": "Too many checks right now — take a short break and try again."}, status_code=429)
 
     result = check_sql(req.sql, dialect=req.dialect, target_dialect=req.target_dialect, dbt_mode=req.dbt_mode)
     if not result.get("ok"):
         return JSONResponse(result, status_code=422)
+
+    # fail_on_severity actually blocking (not just reporting) is the paid feature.
+    if key is not None and req.fail_on_severity in SEV_ORDER:
+        threshold = SEV_ORDER.index(req.fail_on_severity)
+        result["blocked"] = any(
+            SEV_ORDER.index(f["severity"]) >= threshold for f in result.get("findings", [])
+        )
+    else:
+        result["blocked"] = False
+
     return JSONResponse(result)
+
+
+@app.get("/api/billing/verify-key")
+async def billing_verify_key(request: Request):
+    auth = request.headers.get("authorization", "")
+    key = auth[len("Bearer "):].strip() if auth.startswith("Bearer ") else ""
+    result = billing.verify_api_key(key)
+    return {"active": result is not None, "tier": (result or {}).get("tier")}
 
 
 @app.get("/api/dialects")
 async def dialects():
     return {"dialects": DIALECTS}
+
+
+class CheckoutRequest(BaseModel):
+    tier: str
+    email: str | None = None
+
+
+@app.post("/api/billing/checkout")
+async def billing_checkout(req: CheckoutRequest):
+    if not billing.configured():
+        return JSONResponse({"ok": False, "error": "Billing isn't configured yet."}, status_code=503)
+    try:
+        url = billing.create_checkout_session(req.tier, req.email)
+    except ValueError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=422)
+    return {"ok": True, "checkout_url": url}
+
+
+@app.post("/api/billing/webhook")
+async def billing_webhook(request: Request):
+    if not billing.configured():
+        return JSONResponse({"ok": False, "error": "Billing isn't configured yet."}, status_code=503)
+    payload = await request.body()
+    sig = request.headers.get("stripe-signature", "")
+    try:
+        result = billing.handle_webhook_event(payload, sig)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+    return {"ok": True, **result}
 
 
 app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

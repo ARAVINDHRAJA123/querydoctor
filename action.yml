@@ -30,6 +30,22 @@ inputs:
       errors. Best-effort regex stubbing, not a real `dbt compile`.
     required: false
     default: 'false'
+  api-key:
+    description: >-
+      QueryDoctor Cloud API key. Paid-tier only — required for
+      fail-on-severity to actually block the merge. Only the key is sent
+      to the hosted API to verify the license; SQL is always linted
+      locally and never leaves this workflow run. Without a key,
+      fail-on-severity has no effect (comment-only).
+    required: false
+    default: ''
+  fail-on-severity:
+    description: >-
+      Paid feature. One of: low, medium, high. If set and a valid
+      api-key is provided, the Action exits non-zero (blocking the PR
+      check) when any finding meets or exceeds this severity.
+    required: false
+    default: ''
 
 runs:
   using: 'composite'
@@ -50,4 +66,6 @@ runs:
         INPUT_DIALECT: ${{ inputs.dialect }}
         INPUT_FILE_PATTERNS: ${{ inputs.file-patterns }}
         INPUT_DBT_MODE: ${{ inputs.dbt-mode }}
+        INPUT_API_KEY: ${{ inputs.api-key }}
+        INPUT_FAIL_ON_SEVERITY: ${{ inputs.fail-on-severity }}
       run: python "${{ github.action_path }}/action/review_pr.py"

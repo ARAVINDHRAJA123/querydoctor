@@ -5,8 +5,11 @@ QueryDoctor PR Reviewer — standalone GitHub Action script.
 Finds the .sql files changed in a pull request, runs them through
 QueryDoctor's lint engine (backend/lint_engine.py — same rules as the
 live web app, sqlglot-based, no LLM, no external calls), and posts a
-single PR comment summarizing the findings. Comment-only in v1: this
-script never fails the build / blocks the merge, no matter what it finds.
+single PR comment summarizing the findings. Free/default mode is
+comment-only and never fails the build. With a paid `api-key` and
+`fail-on-severity` set, it can also block the merge — the SQL itself
+is still linted entirely locally; only the license key is checked
+against the hosted API, never the SQL.
 
 Only dependency: sqlglot (installed by action.yml). Everything else here
 is Python stdlib + the GitHub REST API, so this can run in any repo
@@ -26,6 +29,8 @@ from lint_engine import check_sql  # noqa: E402
 
 COMMENT_MARKER = "<!-- querydoctor-action -->"
 SEV_EMOJI = {"high": "🔴", "medium": "🟡", "low": "🔵"}
+SEV_ORDER = ["low", "medium", "high"]
+API_BASE = "https://querydoctor-616665622891.asia-south1.run.app"
 
 
 def _env(name: str, default: str | None = None) -> str:
@@ -78,6 +83,30 @@ def _glob_to_regex(pattern: str) -> re.Pattern:
 
 def _matches_any(path: str, patterns: list[str]) -> bool:
     return any(_glob_to_regex(pat).match(path) for pat in patterns)
+
+
+def verify_api_key(api_key: str) -> bool:
+    """Lightweight license check against the hosted API — no SQL is sent,
+    only the key itself, so linting stays fully local/offline even for
+    paid users. Fails closed (treated as unlicensed) on any error."""
+    req = urllib.request.Request(f"{API_BASE}/api/billing/verify-key")
+    req.add_header("Authorization", f"Bearer {api_key}")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+            return bool(data.get("active"))
+    except Exception as e:
+        print(f"::warning::Couldn't verify QueryDoctor API key: {e}")
+        return False
+
+
+def any_blocked(results: dict[str, dict], threshold: str) -> bool:
+    idx = SEV_ORDER.index(threshold)
+    for r in results.values():
+        for f in r.get("findings", []):
+            if SEV_ORDER.index(f["severity"]) >= idx:
+                return True
+    return False
 
 
 def get_pr_number(event_path: str) -> int | None:
@@ -175,6 +204,8 @@ def main():
     dialect = os.environ.get("INPUT_DIALECT", "bigquery")
     patterns = [p.strip() for p in os.environ.get("INPUT_FILE_PATTERNS", "**/*.sql").split(",") if p.strip()]
     dbt_mode = os.environ.get("INPUT_DBT_MODE", "false").strip().lower() == "true"
+    api_key = os.environ.get("INPUT_API_KEY", "").strip()
+    fail_on_severity = os.environ.get("INPUT_FAIL_ON_SEVERITY", "").strip().lower()
     workspace = os.environ.get("GITHUB_WORKSPACE", ".")
 
     pr_number = get_pr_number(event_path)
@@ -202,8 +233,24 @@ def main():
         return
 
     report = build_report(results)
+
+    blocking = False
+    if fail_on_severity in SEV_ORDER:
+        if not api_key:
+            print("::warning::fail-on-severity was set but no api-key was provided — "
+                  "it's a paid feature, so this run is comment-only. See "
+                  "https://querydoctor-616665622891.asia-south1.run.app for a key.")
+        elif not verify_api_key(api_key):
+            print("::warning::QueryDoctor API key is missing or inactive — comment-only this run.")
+        elif any_blocked(results, fail_on_severity):
+            blocking = True
+            report += f"\n\n🚫 **Blocking this PR** — found {fail_on_severity}+ severity issues (fail-on-severity is set)."
+
     print(report)
     upsert_comment(api_base, repo, pr_number, token, report)
+
+    if blocking:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

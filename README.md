@@ -181,6 +181,20 @@ jobs:
 | `dialect` | `bigquery` | Any of the 10 supported dialects. |
 | `file-patterns` | `**/*.sql` | Comma-separated glob(s) matched against changed file paths (e.g. `models/**/*.sql,dbt/**/*.sql`). |
 | `dbt-mode` | `false` | Strips dbt/Jinja templating (`{{ ref(...) }}`, `{{ source(...) }}`, `{{ var(...) }}`, `{% ... %}`) before linting, so dbt model files don't false-positive as syntax errors. Best-effort regex stubbing — not a real `dbt compile`, so it won't catch errors that depend on the actual rendered SQL. |
+| `api-key` | *(none)* | Paid tier only. Required for `fail-on-severity` to actually block a PR. Only the key is sent to the hosted API to check the license — your SQL is always linted locally and never leaves this workflow run. |
+| `fail-on-severity` | *(none)* | Paid tier only. One of `low`/`medium`/`high` — with a valid `api-key`, the Action exits non-zero (failing the check, not just commenting) when a finding meets or exceeds this severity. |
+
+### Paid tier
+
+Everything above is free forever. The paid tier adds one thing: `fail-on-severity`
+that actually blocks the merge instead of just leaving a comment.
+
+```yaml
+      - uses: ARAVINDHRAJA123/querydoctor@main
+        with:
+          api-key: ${{ secrets.QUERYDOCTOR_API_KEY }}
+          fail-on-severity: high
+```
 
 ## 🔌 Use it as an MCP server
 
