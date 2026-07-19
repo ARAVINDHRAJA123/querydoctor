@@ -182,6 +182,32 @@ jobs:
 | `file-patterns` | `**/*.sql` | Comma-separated glob(s) matched against changed file paths (e.g. `models/**/*.sql,dbt/**/*.sql`). |
 | `dbt-mode` | `false` | Strips dbt/Jinja templating (`{{ ref(...) }}`, `{{ source(...) }}`, `{{ var(...) }}`, `{% ... %}`) before linting, so dbt model files don't false-positive as syntax errors. Best-effort regex stubbing — not a real `dbt compile`, so it won't catch errors that depend on the actual rendered SQL. |
 
+## 🔌 Use it as an MCP server
+
+Give any MCP client (Claude Code, Claude Desktop, Cursor, etc.) a `lint_sql`
+tool so it can check SQL mid-conversation without shelling out or calling an
+LLM for it. Same `lint_engine.py` the web app and GitHub Action use — no
+network calls, no credentials, nothing stored.
+
+```json
+{
+  "mcpServers": {
+    "querydoctor": {
+      "command": "python3",
+      "args": ["/path/to/querydoctor/mcp_server/server.py"]
+    }
+  }
+}
+```
+
+```bash
+pip install -r mcp_server/requirements.txt
+```
+
+Exposes two tools: `lint_sql(sql, dialect, target_dialect, dbt_mode)` — the
+full diagnosis (syntax, score, findings, formatted SQL, optimized rewrite,
+translation) as structured JSON — and `list_dialects()`.
+
 ## 📲 Install it like an app
 
 | Platform | How |
