@@ -1,55 +1,57 @@
 /* QueryDoctor — design system.
-   Emerald "health" palette, large readable type, iOS-style springy
-   buttons (transform/opacity only — GPU-friendly, buttery on phones). */
+   Indigo/violet palette, large readable type, iOS-style springy
+   buttons (transform/opacity only — GPU-friendly, buttery on phones).
+   pos/warn/neg stay green/amber/red regardless of brand — those carry
+   health-score/severity meaning, not brand identity. */
 
 :root {
-  --bg: #f6faf8;
+  --bg: #f7f7fc;
   --card: #ffffff;
-  --ink: #14201b;
-  --muted: #5c6b64;
-  --line: #e2ece7;
-  --brand: #0ea371;
-  --brand-2: #14b8a6;
+  --ink: #191a2e;
+  --muted: #63637d;
+  --line: #e4e4f0;
+  --brand: #6366f1;
+  --brand-2: #8b5cf6;
   --accent: #06b6d4;
   --brand-ink: #ffffff;
   --pos: #10b981;
   --warn: #f59e0b;
   --neg: #ef4444;
-  --code-bg: #0e1613;
-  --code-ink: #d9efe6;
-  --shadow: 0 8px 30px rgba(20, 32, 27, .08);
+  --code-bg: #14152a;
+  --code-ink: #e3e3f7;
+  --shadow: 0 8px 30px rgba(25, 26, 46, .08);
   --radius: 20px;
   --spring: cubic-bezier(.34, 1.56, .64, 1); /* iOS-style overshoot */
 }
 /* Dark palette — applied when the user picks dark, or by system preference
    when the user hasn't picked anything. */
 :root[data-theme="dark"] {
-  --bg: #07100d;
-  --card: #101a16;
-  --ink: #ecf5f1;
-  --muted: #93a69d;
-  --line: #1e2c26;
-  --brand: #34d399;
-  --brand-2: #2dd4bf;
+  --bg: #0b0b16;
+  --card: #15162a;
+  --ink: #eeeef8;
+  --muted: #9a9ab8;
+  --line: #26273f;
+  --brand: #818cf8;
+  --brand-2: #a78bfa;
   --accent: #22d3ee;
-  --brand-ink: #052e22;
-  --code-bg: #0a1310;
-  --code-ink: #cfeee0;
+  --brand-ink: #1e1b4b;
+  --code-bg: #0e0f1f;
+  --code-ink: #dadaf3;
   --shadow: 0 8px 30px rgba(0, 0, 0, .45);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #07100d;
-    --card: #101a16;
-    --ink: #ecf5f1;
-    --muted: #93a69d;
-    --line: #1e2c26;
-    --brand: #34d399;
-    --brand-2: #2dd4bf;
+    --bg: #0b0b16;
+    --card: #15162a;
+    --ink: #eeeef8;
+    --muted: #9a9ab8;
+    --line: #26273f;
+    --brand: #818cf8;
+    --brand-2: #a78bfa;
     --accent: #22d3ee;
-    --brand-ink: #052e22;
-    --code-bg: #0a1310;
-    --code-ink: #cfeee0;
+    --brand-ink: #1e1b4b;
+    --code-bg: #0e0f1f;
+    --code-ink: #dadaf3;
     --shadow: 0 8px 30px rgba(0, 0, 0, .45);
   }
 }
@@ -173,7 +175,7 @@ html[data-theme="light"] .ico-moon { opacity: 0; transform: rotate(90deg) scale(
 .hero h1 { font-size: clamp(32px, 6vw, 54px); font-weight: 800; letter-spacing: -.03em; line-height: 1.12; }
 .hero em {
   font-style: normal;
-  background: linear-gradient(100deg, #34d399 0%, #2dd4bf 45%, #22d3ee 100%);
+  background: linear-gradient(100deg, #818cf8 0%, #a78bfa 45%, #e879f9 100%);
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 .hero .sub { max-width: 600px; margin: 14px auto 0; color: var(--muted); font-size: 18px; }

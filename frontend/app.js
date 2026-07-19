@@ -256,7 +256,7 @@ function applyTheme(next) {
   rootEl.dataset.theme = next;
   localStorage.setItem(THEME_KEY, next);
   document.querySelector('meta[name="theme-color"]')
-    .setAttribute("content", next === "dark" ? "#07100d" : "#f6faf8");
+    .setAttribute("content", next === "dark" ? "#0b0b16" : "#f7f7fc");
 }
 
 $("btn-theme").addEventListener("click", (ev) => {
@@ -323,7 +323,7 @@ document.querySelectorAll(".btn-buy").forEach((btn) => {
         order_id: body.order.id,
         name: "QueryDoctor",
         description: `${tier[0].toUpperCase()}${tier.slice(1)} API key — 30 days`,
-        theme: { color: "#0ea371" },
+        theme: { color: "#6366f1" },
         handler: (response) => verifyAndShowKey(response, tier),
         modal: { ondismiss: () => { btn.disabled = false; btn.textContent = original; } },
       });
