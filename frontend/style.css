@@ -26,7 +26,7 @@
 /* Dark palette — applied when the user picks dark, or by system preference
    when the user hasn't picked anything. */
 :root[data-theme="dark"] {
-  --bg: #0b0b16;
+  --bg: #000000;
   --card: #15162a;
   --ink: #eeeef8;
   --muted: #9a9ab8;
@@ -41,7 +41,7 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0b0b16;
+    --bg: #000000;
     --card: #15162a;
     --ink: #eeeef8;
     --muted: #9a9ab8;
@@ -63,11 +63,20 @@
 ::view-transition-new(root) { z-index: 2147483646; }
 ::view-transition-old(root) { z-index: 1; }
 
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 500 700;
+  font-display: swap;
+  src: url("fonts/SpaceGrotesk-Variable.woff2") format("woff2");
+}
+
 * { box-sizing: border-box; margin: 0; }
 [hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", system-ui, sans-serif;
+  font-family: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", system-ui, sans-serif;
+  font-weight: 500;
   background: var(--bg); color: var(--ink);
   font-size: 17px; line-height: 1.55; min-height: 100dvh;
   padding-bottom: env(safe-area-inset-bottom);
@@ -312,7 +321,13 @@ textarea:focus {
 }
 
 .muted { color: var(--muted); font-size: 15px; }
-.foot { text-align: center; color: var(--muted); font-size: 14px; padding: 28px 0 10px; }
+.foot {
+  text-align: center; color: var(--muted); font-size: 14px;
+  margin: 28px auto 10px; padding: 12px 20px; max-width: fit-content;
+  background: color-mix(in srgb, var(--card) 60%, transparent);
+  border: 1px solid var(--line); border-radius: 999px;
+  backdrop-filter: blur(8px);
+}
 
 /* ── Pricing / API key purchase ── */
 .pricing-card { animation-delay: .3s; }
@@ -329,8 +344,12 @@ textarea:focus {
 }
 .price-tier:hover { transform: translateY(-3px); border-color: var(--brand); }
 .price-tier h3 { font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-.price-amount { font-size: 30px; font-weight: 800; margin-bottom: 12px; }
-.price-amount small { font-size: 13px; font-weight: 600; color: var(--muted); }
+.price-amount { font-size: 30px; font-weight: 800; }
+.price-duration {
+  font-size: 14px; font-weight: 700; color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 14%, transparent);
+  border-radius: 999px; padding: 4px 12px; margin: 8px 0 12px;
+}
 .price-tier .btn-hero { font-size: 15px; padding: 10px 20px; width: 100%; justify-content: center; margin-top: 4px; }
 .key-result {
   margin-top: 16px; padding: 16px 18px; border-radius: 12px;

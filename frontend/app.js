@@ -256,7 +256,7 @@ function applyTheme(next) {
   rootEl.dataset.theme = next;
   localStorage.setItem(THEME_KEY, next);
   document.querySelector('meta[name="theme-color"]')
-    .setAttribute("content", next === "dark" ? "#0b0b16" : "#f7f7fc");
+    .setAttribute("content", next === "dark" ? "#000000" : "#f7f7fc");
 }
 
 $("btn-theme").addEventListener("click", (ev) => {

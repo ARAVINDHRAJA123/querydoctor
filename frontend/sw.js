@@ -2,8 +2,8 @@
    offline opens; NEVER cache /api responses — checks stay in memory only. */
 
 // Bump this on every deploy that changes any SHELL file.
-const CACHE = "querydoctor-v11";
-const SHELL = [".", "index.html", "style.css", "app.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
+const CACHE = "querydoctor-v12";
+const SHELL = [".", "index.html", "style.css", "app.js", "manifest.webmanifest", "fonts/SpaceGrotesk-Variable.woff2", "icons/icon-192.png", "icons/icon-512.png"];
 
 self.addEventListener("install", (e) => {
   // {cache: "reload"} bypasses the browser's own HTTP cache — a plain fetch()
