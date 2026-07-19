@@ -48,8 +48,16 @@ async def security_headers(request: Request, call_next):
     resp.headers["Referrer-Policy"] = "no-referrer"
     resp.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     resp.headers["Content-Security-Policy"] = (
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-        "font-src 'self'; img-src 'self' data:; connect-src 'self'"
+        "default-src 'self'; "
+        # checkout.razorpay.com is Razorpay's own hosted payment widget —
+        # it handles card/UPI details directly with Razorpay; we never see
+        # or touch that data ourselves, only the payment result.
+        "script-src 'self' https://checkout.razorpay.com; "
+        "frame-src https://api.razorpay.com; "
+        "style-src 'self' 'unsafe-inline'; "
+        "font-src 'self'; "
+        "img-src 'self' data: https://*.razorpay.com; "
+        "connect-src 'self' https://api.razorpay.com https://lumberjack.razorpay.com"
     )
     return resp
 

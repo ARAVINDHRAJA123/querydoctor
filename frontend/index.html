@@ -132,6 +132,32 @@
     <div class="trust-item"><span>🗣️</span><div><b>Plain English</b><small>Advice anyone can follow</small></div></div>
   </section>
 
+  <!-- ── API key purchase (paid tier: fail-on-severity blocking in CI) ── -->
+  <section class="card pricing-card" id="pricing-card">
+    <h2>🔑 Block merges in CI, not just comment</h2>
+    <p class="muted">The <a href="https://github.com/ARAVINDHRAJA123/querydoctor#-use-it-as-a-github-action" target="_blank" rel="noopener">GitHub Action</a> is free forever for PR comments. An API key
+      additionally unlocks <code>fail-on-severity</code> — actually blocking the merge — for 30 days.
+      Only the key is checked over the network; your SQL is always linted locally, never sent anywhere.</p>
+    <div class="pricing-grid">
+      <div class="price-tier">
+        <h3>Team</h3>
+        <div class="price-amount">₹999<small>/30 days</small></div>
+        <button class="btn-hero btn-buy" type="button" data-tier="team">Get API key</button>
+      </div>
+      <div class="price-tier">
+        <h3>Scale</h3>
+        <div class="price-amount">₹2,499<small>/30 days</small></div>
+        <button class="btn-hero btn-buy" type="button" data-tier="scale">Get API key</button>
+      </div>
+    </div>
+    <p id="pricing-error" class="error" role="alert" hidden></p>
+    <div id="key-result" class="key-result" hidden>
+      <p>✅ Payment verified. Your API key (also copy it now — this is the only time it's shown):</p>
+      <div class="key-line"><code id="key-value"></code><button class="btn-mini" id="btn-copy-key" type="button">Copy</button></div>
+      <p class="muted">Valid 30 days. Add it as a repo secret and pass it to the Action as <code>api-key</code>.</p>
+    </div>
+  </section>
+
   <footer class="foot">QueryDoctor · 10 dialects · your SQL never leaves the check-up room.</footer>
 </main>
 
@@ -147,6 +173,7 @@
   </svg>
 </button>
 
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -283,3 +283,90 @@ $("btn-theme").addEventListener("click", (ev) => {
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => navigator.serviceWorker.register("sw.js"));
 }
+
+/* ── API key purchase (paid tier — Razorpay order-then-verify) ─────────
+   Same flow as SpendStory's Excel export: create an order server-side,
+   open Razorpay's own hosted Checkout (we never see card/UPI details),
+   and on success send order_id/payment_id/signature to /api/billing/verify,
+   which checks the signature server-side before ever handing back a key. */
+function setPricingError(msg) {
+  const el = $("pricing-error");
+  el.hidden = !msg;
+  el.textContent = msg || "";
+}
+
+document.querySelectorAll(".btn-buy").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const tier = btn.dataset.tier;
+    if (typeof Razorpay === "undefined") {
+      return setPricingError("Payment widget failed to load — check your connection and try again.");
+    }
+    setPricingError("");
+    $("key-result").hidden = true;
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Starting checkout…";
+
+    try {
+      const res = await fetch("api/billing/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tier }),
+      });
+      const body = await res.json();
+      if (!res.ok || !body.ok) throw new Error(body.error || "Couldn't start checkout.");
+
+      const rzp = new Razorpay({
+        key: body.key_id,
+        amount: body.order.amount,
+        currency: body.order.currency,
+        order_id: body.order.id,
+        name: "QueryDoctor",
+        description: `${tier[0].toUpperCase()}${tier.slice(1)} API key — 30 days`,
+        theme: { color: "#0ea371" },
+        handler: (response) => verifyAndShowKey(response, tier),
+        modal: { ondismiss: () => { btn.disabled = false; btn.textContent = original; } },
+      });
+      rzp.on("payment.failed", () => setPricingError("Payment failed. You have not been charged — please try again."));
+      rzp.open();
+      btn.textContent = original;
+      btn.disabled = false;
+    } catch (e) {
+      setPricingError(e.message || "Couldn't reach the server. Please try again.");
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  });
+});
+
+async function verifyAndShowKey(payment, tier) {
+  setPricingError("");
+  try {
+    const res = await fetch("api/billing/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        razorpay_order_id: payment.razorpay_order_id,
+        razorpay_payment_id: payment.razorpay_payment_id,
+        razorpay_signature: payment.razorpay_signature,
+        tier,
+      }),
+    });
+    const body = await res.json();
+    if (!res.ok || !body.ok) throw new Error(body.error || "Payment succeeded but the key couldn't be issued — please contact support.");
+    $("key-value").textContent = body.api_key;
+    $("key-result").hidden = false;
+    $("key-result").scrollIntoView({ behavior: "smooth", block: "center" });
+  } catch (e) {
+    setPricingError(e.message);
+  }
+}
+
+$("btn-copy-key").addEventListener("click", () => {
+  navigator.clipboard.writeText($("key-value").textContent).then(() => {
+    const btn = $("btn-copy-key");
+    const old = btn.textContent;
+    btn.textContent = "Copied ✓";
+    setTimeout(() => (btn.textContent = old), 1400);
+  });
+});
