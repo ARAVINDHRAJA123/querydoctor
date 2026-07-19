@@ -104,33 +104,39 @@ async def dialects():
     return {"dialects": DIALECTS}
 
 
-class CheckoutRequest(BaseModel):
+class CreateOrderRequest(BaseModel):
     tier: str
-    email: str | None = None
 
 
-@app.post("/api/billing/checkout")
-async def billing_checkout(req: CheckoutRequest):
+@app.post("/api/billing/create-order")
+async def billing_create_order(req: CreateOrderRequest):
     if not billing.configured():
-        return JSONResponse({"ok": False, "error": "Billing isn't configured yet."}, status_code=503)
+        return JSONResponse({"ok": False, "error": "Payments aren't configured yet."}, status_code=503)
     try:
-        url = billing.create_checkout_session(req.tier, req.email)
-    except ValueError as e:
+        order = billing.create_order(req.tier)
+    except billing.BillingError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=422)
-    return {"ok": True, "checkout_url": url}
+    return {"ok": True, "order": order, "key_id": billing.RAZORPAY_KEY_ID}
 
 
-@app.post("/api/billing/webhook")
-async def billing_webhook(request: Request):
+class VerifyPaymentRequest(BaseModel):
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
+    tier: str
+
+
+@app.post("/api/billing/verify")
+async def billing_verify(req: VerifyPaymentRequest):
     if not billing.configured():
-        return JSONResponse({"ok": False, "error": "Billing isn't configured yet."}, status_code=503)
-    payload = await request.body()
-    sig = request.headers.get("stripe-signature", "")
+        return JSONResponse({"ok": False, "error": "Payments aren't configured yet."}, status_code=503)
     try:
-        result = billing.handle_webhook_event(payload, sig)
-    except Exception as e:
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
-    return {"ok": True, **result}
+        key = billing.verify_and_provision(
+            req.razorpay_order_id, req.razorpay_payment_id, req.razorpay_signature, req.tier
+        )
+    except billing.BillingError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=402)
+    return {"ok": True, "api_key": key, "expires_in_days": billing.KEY_DURATION_DAYS}
 
 
 app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

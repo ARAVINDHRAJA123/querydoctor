@@ -159,13 +159,54 @@ def test_fail_on_severity_ignored_without_api_key():
     d = check("DELETE FROM t").json()
     assert d.get("blocked") is False
 
-def test_billing_checkout_blocked_when_not_configured():
-    r = client.post("/api/billing/checkout", json={"tier": "team"})
+def test_billing_create_order_blocked_when_not_configured():
+    r = client.post("/api/billing/create-order", json={"tier": "team"})
     assert r.status_code == 503
 
-def test_billing_webhook_blocked_when_not_configured():
-    r = client.post("/api/billing/webhook", content=b"{}")
+def test_billing_verify_blocked_when_not_configured():
+    r = client.post("/api/billing/verify", json={
+        "razorpay_order_id": "o1", "razorpay_payment_id": "p1",
+        "razorpay_signature": "s1", "tier": "team",
+    })
     assert r.status_code == 503
+
+def test_billing_verify_rejects_bad_signature(monkeypatch):
+    import billing
+    monkeypatch.setattr(billing, "RAZORPAY_KEY_ID", "rzp_test_x")
+    monkeypatch.setattr(billing, "RAZORPAY_KEY_SECRET", "secret123")
+    r = client.post("/api/billing/verify", json={
+        "razorpay_order_id": "o1", "razorpay_payment_id": "p1",
+        "razorpay_signature": "forged", "tier": "team",
+    })
+    assert r.status_code == 402
+
+def test_billing_verify_provisions_key_on_valid_signature(monkeypatch):
+    import billing, hmac, hashlib
+    monkeypatch.setattr(billing, "RAZORPAY_KEY_ID", "rzp_test_x")
+    monkeypatch.setattr(billing, "RAZORPAY_KEY_SECRET", "secret123")
+    sig = hmac.new(b"secret123", b"o1|p1", hashlib.sha256).hexdigest()
+    provisioned = {}
+    def fake_set(self, data):
+        provisioned.update(data)
+    class FakeDoc:
+        def set(self, data):
+            provisioned.update(data)
+    class FakeCollection:
+        def document(self, key):
+            provisioned["_key"] = key
+            return FakeDoc()
+    class FakeClient:
+        def collection(self, name):
+            return FakeCollection()
+    monkeypatch.setattr(billing, "_client", lambda: FakeClient())
+    r = client.post("/api/billing/verify", json={
+        "razorpay_order_id": "o1", "razorpay_payment_id": "p1",
+        "razorpay_signature": sig, "tier": "team",
+    })
+    assert r.status_code == 200
+    d = r.json()
+    assert d["ok"] is True and d["api_key"].startswith("qd_live_")
+    assert provisioned["tier"] == "team"
 
 def test_check_rejects_invalid_bearer_key():
     r = client.post("/api/check", json={"sql": "SELECT 1"}, headers={"Authorization": "Bearer qd_live_bogus"})

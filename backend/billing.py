@@ -1,31 +1,48 @@
-"""Hosted API billing — Stripe subscriptions + Firestore-backed API keys.
+"""Hosted API billing — Razorpay (not Stripe: India-based accounts need an
+invite/approval Stripe doesn't reliably grant) order-then-verify purchases,
+API keys stored in Firestore.
 
-Free tier (no key, or /api/check with no Authorization header) is untouched:
-same rate-limited, comment-only behavior as always. A valid, active API key
-unlocks fail_on_severity (the endpoint can actually return a "block" verdict
-instead of just reporting findings) and lifts the per-IP rate limit.
+Not a recurring subscription — Razorpay Subscriptions needs UPI autopay
+mandates and more compliance overhead than a solo project needs right now.
+Instead this sells a fixed-duration API key (default 30 days): same
+order-then-verify flow already proven in spendstory's payments.py, and the
+key is handed back directly in the verify response — no webhook, no email
+delivery step, no gap between payment and the buyer having their key.
 
-Requires env vars to do anything real:
-  STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_ID_TEAM,
-  STRIPE_PRICE_ID_SCALE, PUBLIC_APP_URL (for checkout success/cancel redirect)
-Without them, checkout/webhook endpoints return 503 — same "not configured"
-pattern already used for spendstory's Razorpay integration.
+Free tier (no key, or /api/check with no Authorization header) is
+untouched: same rate-limited, comment-only behavior as always. A valid,
+unexpired key unlocks fail_on_severity (the endpoint can actually return a
+"block" verdict) and lifts the per-IP rate limit.
+
+Requires RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET to do anything real —
+without them, checkout/verify endpoints return 503, same pattern as
+spendstory. Prices are placeholders (owner's call to tune, like the
+SpendStory ₹19 pricing decision) — see PRICES below.
 """
 
+import base64
+import hashlib
+import hmac
+import json
 import os
 import secrets
-from datetime import datetime, timezone
+import urllib.error
+import urllib.request
+from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
-import stripe
 from google.cloud import firestore
 
-STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
-STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
-STRIPE_PRICE_IDS = {
-    "team": os.environ.get("STRIPE_PRICE_ID_TEAM", ""),
-    "scale": os.environ.get("STRIPE_PRICE_ID_SCALE", ""),
+RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
+RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
+
+CURRENCY = "INR"
+KEY_DURATION_DAYS = 30
+# Placeholder pricing — tune before actually selling. Paise (₹1 = 100 paise).
+PRICES_PAISE = {
+    "team": 99900,    # ₹999 / 30 days
+    "scale": 249900,  # ₹2,499 / 30 days
 }
-PUBLIC_APP_URL = os.environ.get("PUBLIC_APP_URL", "https://querydoctor-616665622891.asia-south1.run.app")
 
 _db = None
 
@@ -38,74 +55,93 @@ def _client() -> firestore.Client:
 
 
 def configured() -> bool:
-    return bool(STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET)
+    return bool(RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET)
 
 
 def _new_key() -> str:
     return "qd_live_" + secrets.token_urlsafe(32)
 
 
-def create_checkout_session(tier: str, email: str | None = None) -> str:
-    """Returns a Stripe Checkout URL for the given tier ('team' or 'scale')."""
-    price_id = STRIPE_PRICE_IDS.get(tier)
-    if not price_id:
-        raise ValueError(f"Unknown or unconfigured tier: {tier}")
-    stripe.api_key = STRIPE_SECRET_KEY
-    session = stripe.checkout.Session.create(
-        mode="subscription",
-        line_items=[{"price": price_id, "quantity": 1}],
-        customer_email=email,
-        metadata={"tier": tier},
-        success_url=f"{PUBLIC_APP_URL}/billing/success?session_id={{CHECKOUT_SESSION_ID}}",
-        cancel_url=f"{PUBLIC_APP_URL}/billing/cancelled",
+class BillingError(Exception):
+    pass
+
+
+def create_order(tier: str) -> dict:
+    """Creates a Razorpay order for the given tier's 30-day pack. Returns
+    the order dict (has "id", "amount", "currency") straight from
+    Razorpay's API. Raises BillingError on any failure."""
+    if not configured():
+        raise BillingError("Payments are not configured on this server.")
+    amount = PRICES_PAISE.get(tier)
+    if amount is None:
+        raise BillingError(f"Unknown tier: {tier}")
+
+    body = json.dumps({
+        "amount": amount,
+        "currency": CURRENCY,
+        "receipt": f"qd_{uuid4().hex[:12]}",
+        "notes": {"tier": tier},
+    }).encode()
+
+    req = urllib.request.Request(
+        "https://api.razorpay.com/v1/orders",
+        data=body,
+        method="POST",
+        headers={"Content-Type": "application/json"},
     )
-    return session.url
+    auth = base64.b64encode(f"{RAZORPAY_KEY_ID}:{RAZORPAY_KEY_SECRET}".encode()).decode()
+    req.add_header("Authorization", f"Basic {auth}")
+
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        raise BillingError(f"Razorpay order creation failed: {e.read().decode(errors='replace')}") from e
+    except urllib.error.URLError as e:
+        raise BillingError(f"Couldn't reach Razorpay: {e}") from e
 
 
-def handle_webhook_event(payload: bytes, sig_header: str) -> dict:
-    """Verifies and processes a Stripe webhook event. Provisions a key on
-    checkout completion, deactivates it on subscription cancellation.
-    Returns {"handled": bool, "type": str}."""
-    stripe.api_key = STRIPE_SECRET_KEY
-    event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
-    etype = event["type"]
-    db = _client()
+def _verify_signature(order_id: str, payment_id: str, signature: str) -> bool:
+    """Razorpay's documented scheme: HMAC-SHA256 of "{order_id}|{payment_id}"
+    using the key secret. This — not the order_id/payment_id themselves —
+    is the only proof the payment actually happened."""
+    if not (order_id and payment_id and signature):
+        return False
+    expected = hmac.new(
+        RAZORPAY_KEY_SECRET.encode(),
+        f"{order_id}|{payment_id}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(expected, signature)
 
-    if etype == "checkout.session.completed":
-        session = event["data"]["object"]
-        customer_id = session["customer"]
-        subscription_id = session["subscription"]
-        tier = session.get("metadata", {}).get("tier", "team")
-        key = _new_key()
-        db.collection("querydoctor_api_keys").document(key).set({
-            "stripe_customer_id": customer_id,
-            "stripe_subscription_id": subscription_id,
-            "tier": tier,
-            "active": True,
-            "created_at": datetime.now(timezone.utc),
-        })
-        # In production this key needs to reach the buyer — e.g. email it via
-        # the address on the Checkout session, or show it on the success page
-        # keyed by session_id. Not wired to an email sender yet.
-        return {"handled": True, "type": etype, "key": key}
 
-    if etype == "customer.subscription.deleted":
-        sub = event["data"]["object"]
-        docs = db.collection("querydoctor_api_keys").where(
-            "stripe_subscription_id", "==", sub["id"]
-        ).stream()
-        for doc in docs:
-            doc.reference.update({"active": False})
-        return {"handled": True, "type": etype}
+def verify_and_provision(order_id: str, payment_id: str, signature: str, tier: str) -> str:
+    """Verifies the Razorpay payment signature and, if valid, provisions
+    and returns a new API key good for KEY_DURATION_DAYS. Raises
+    BillingError if the signature doesn't check out."""
+    if not configured():
+        raise BillingError("Payments are not configured on this server.")
+    if not _verify_signature(order_id, payment_id, signature):
+        raise BillingError("Payment verification failed.")
 
-    return {"handled": False, "type": etype}
+    key = _new_key()
+    expires_at = datetime.now(timezone.utc) + timedelta(days=KEY_DURATION_DAYS)
+    _client().collection("querydoctor_api_keys").document(key).set({
+        "tier": tier,
+        "razorpay_order_id": order_id,
+        "razorpay_payment_id": payment_id,
+        "created_at": datetime.now(timezone.utc),
+        "expires_at": expires_at,
+    })
+    return key
 
 
 def verify_api_key(key: str) -> dict | None:
-    """Returns {"tier": ...} for a valid, active key, or None. Any Firestore
-    error (no credentials, no network, misconfigured project) fails open to
-    "no key" rather than 500ing the request — an unreachable billing backend
-    should degrade to the free tier, not break SQL checks."""
+    """Returns {"tier": ...} for a valid, unexpired key, or None. Any
+    Firestore error (no credentials, no network, misconfigured project)
+    fails open to "no key" rather than 500ing the request — an
+    unreachable billing backend should degrade to the free tier, not
+    break SQL checks."""
     if not key or not key.startswith("qd_live_"):
         return None
     try:
@@ -115,6 +151,7 @@ def verify_api_key(key: str) -> dict | None:
     if not doc.exists:
         return None
     data = doc.to_dict()
-    if not data.get("active"):
+    expires_at = data.get("expires_at")
+    if expires_at is None or expires_at < datetime.now(timezone.utc):
         return None
     return {"tier": data.get("tier", "team")}
