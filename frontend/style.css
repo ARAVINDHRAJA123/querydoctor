@@ -14,6 +14,8 @@
   --brand-2: #8b5cf6;
   --accent: #06b6d4;
   --brand-ink: #ffffff;
+  --logo-1: #10b981;
+  --logo-2: #14b8a6;
   --pos: #10b981;
   --warn: #f59e0b;
   --neg: #ef4444;
@@ -35,6 +37,8 @@
   --brand-2: #a78bfa;
   --accent: #22d3ee;
   --brand-ink: #1e1b4b;
+  --logo-1: #34d399;
+  --logo-2: #2dd4bf;
   --code-bg: #0e0f1f;
   --code-ink: #dadaf3;
   --shadow: 0 8px 30px rgba(0, 0, 0, .45);
@@ -50,6 +54,8 @@
     --brand-2: #a78bfa;
     --accent: #22d3ee;
     --brand-ink: #1e1b4b;
+    --logo-1: #34d399;
+    --logo-2: #2dd4bf;
     --code-bg: #0e0f1f;
     --code-ink: #dadaf3;
     --shadow: 0 8px 30px rgba(0, 0, 0, .45);
@@ -89,12 +95,16 @@ body {
 /* ── Top bar ── */
 .topbar {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 14px clamp(16px, 4vw, 40px);
+  padding: 10px clamp(16px, 4vw, 40px);
   position: sticky; top: 0; z-index: 5;
   background: color-mix(in srgb, var(--bg) 80%, transparent);
   backdrop-filter: blur(12px);
 }
-.brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 20px; color: var(--brand); }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 20px; }
+.brand span {
+  background: linear-gradient(100deg, var(--logo-1), var(--logo-2));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
 .topbar-left { display: flex; align-items: center; gap: 8px; }
 .btn-history {
   width: 40px; height: 40px; border-radius: 12px; border: 0;
@@ -148,10 +158,28 @@ body {
 }
 .h-sub { font-size: 12px; color: var(--muted); }
 .drawer-empty { color: var(--muted); font-size: 14.5px; text-align: center; margin-top: 30px; }
-.privacy-pill {
-  font-size: 14px; font-weight: 600; color: var(--pos);
-  background: color-mix(in srgb, var(--pos) 12%, transparent);
-  padding: 6px 14px; border-radius: 999px;
+.privacy-tip-wrap { position: relative; display: inline-flex; }
+.btn-privacy {
+  width: 40px; height: 40px; border-radius: 12px; border: 1.5px solid var(--line);
+  background: color-mix(in srgb, var(--pos) 10%, transparent); color: var(--pos);
+  cursor: pointer; display: grid; place-items: center;
+  transition: transform .3s var(--spring), border-color .2s ease;
+}
+.btn-privacy:hover, .btn-privacy:focus-visible { transform: scale(1.08); border-color: var(--pos); }
+.btn-privacy:active { transform: scale(.9); }
+.privacy-tip {
+  position: absolute; top: calc(100% + 10px); right: 0; z-index: 20;
+  width: max-content; max-width: 220px;
+  background: var(--card); color: var(--ink); border: 1.5px solid var(--line);
+  border-radius: 12px; padding: 10px 14px; font-size: 13.5px; font-weight: 600;
+  box-shadow: var(--shadow);
+  opacity: 0; transform: translateY(-6px); pointer-events: none;
+  transition: opacity .2s ease, transform .2s var(--spring);
+}
+.btn-privacy:hover + .privacy-tip,
+.btn-privacy:focus-visible + .privacy-tip,
+.privacy-tip.show {
+  opacity: 1; transform: translateY(0);
 }
 
 /* Theme toggle: floating action button in the thumb zone (bottom-right),
@@ -180,14 +208,20 @@ html[data-theme="light"] .ico-moon { opacity: 0; transform: rotate(90deg) scale(
 .screen { max-width: 880px; margin: 0 auto; padding: 8px clamp(16px, 4vw, 40px) 48px; }
 
 /* ── Hero ── */
-.hero { text-align: center; padding: clamp(20px, 5vw, 52px) 0 24px; animation: rise .6s ease both; }
-.hero h1 { font-size: clamp(32px, 6vw, 54px); font-weight: 800; letter-spacing: -.03em; line-height: 1.12; }
+.hero { text-align: center; padding: clamp(12px, 3vw, 28px) 0 24px; animation: rise .6s ease both; }
+.hero h1 { font-size: clamp(36px, 7.5vw, 64px); font-weight: 700; letter-spacing: -.03em; line-height: 1.1; }
 .hero em {
   font-style: normal;
-  background: linear-gradient(100deg, #818cf8 0%, #a78bfa 45%, #e879f9 100%);
+  background: linear-gradient(90deg, #2dd4bf, #38bdf8, #a855f7, #ef4444, #fb923c, #2dd4bf);
+  background-size: 300% 100%;
   -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: hero-hue 8s ease-in-out infinite;
 }
-.hero .sub { max-width: 600px; margin: 14px auto 0; color: var(--muted); font-size: 18px; }
+@keyframes hero-hue {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+.hero .sub { max-width: 620px; margin: 14px auto 0; color: var(--muted); font-size: 18px; }
 
 /* ── Cards ── */
 .card {
@@ -323,7 +357,7 @@ textarea:focus {
 .muted { color: var(--muted); font-size: 15px; }
 .foot {
   text-align: center; color: var(--muted); font-size: 14px;
-  margin: 28px auto 10px; padding: 12px 20px; max-width: fit-content;
+  margin: 20px auto 6px; padding: 12px 20px; max-width: fit-content;
   background: color-mix(in srgb, var(--card) 60%, transparent);
   border: 1px solid var(--line); border-radius: 999px;
   backdrop-filter: blur(8px);

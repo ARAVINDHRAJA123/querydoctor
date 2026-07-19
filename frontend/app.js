@@ -232,6 +232,19 @@ function closeDrawer() {
 }
 $("btn-history").addEventListener("click", () =>
   $("drawer").classList.contains("open") ? closeDrawer() : openDrawer());
+
+/* Privacy tooltip: :hover/:focus-visible already show it on desktop via CSS;
+   this adds tap-to-show (with auto-hide) for touch devices, where hover
+   never fires. */
+let privacyTipTimer;
+$("btn-privacy").addEventListener("click", (e) => {
+  e.stopPropagation();
+  const tip = $("privacy-tip");
+  tip.classList.add("show");
+  clearTimeout(privacyTipTimer);
+  privacyTipTimer = setTimeout(() => tip.classList.remove("show"), 3000);
+});
+document.addEventListener("click", () => $("privacy-tip").classList.remove("show"));
 $("drawer-backdrop").addEventListener("click", closeDrawer);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
 $("btn-clear-history").addEventListener("click", () => {
