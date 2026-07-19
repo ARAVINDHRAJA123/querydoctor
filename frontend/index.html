@@ -152,9 +152,9 @@
     <p class="muted pricing-footnote">Only the key is checked over the network — your SQL is always linted locally, never sent anywhere.</p>
     <p id="pricing-error" class="error" role="alert" hidden></p>
     <div id="key-result" class="key-result" hidden>
-      <p>✅ Payment verified. Your API key (also copy it now — this is the only time it's shown):</p>
-      <div class="key-line"><code id="key-value"></code><button class="btn-mini" id="btn-copy-key" type="button">Copy</button></div>
-      <p class="muted">Valid 30 days. Add it as a repo secret and pass it to the Action as <code>api-key</code>.</p>
+      <p class="key-warning">⚠️ <b>Copy this now — it will never be shown again.</b> We don't store it in a way we can show or recover it later.</p>
+      <div class="key-line"><code id="key-value"></code><button class="btn-mini btn-copy-key-action" id="btn-copy-key" type="button">Copy</button></div>
+      <p class="muted">✅ Payment verified · valid 30 days. Add it as a repo secret and pass it to the Action as <code>api-key</code>.</p>
     </div>
   </section>
 

@@ -331,14 +331,26 @@ textarea:focus {
 .price-amount small { font-size: 13px; font-weight: 600; color: var(--muted); }
 .price-tier .btn-hero { font-size: 15px; padding: 10px 20px; width: 100%; justify-content: center; margin-top: 4px; }
 .key-result {
-  margin-top: 16px; padding: 14px 16px; border-radius: 12px;
-  background: color-mix(in srgb, var(--pos) 10%, transparent);
+  margin-top: 16px; padding: 16px 18px; border-radius: 12px;
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  border: 2px solid var(--warn);
+  animation: key-pulse 1.8s ease-in-out 2;
 }
+.key-warning {
+  font-size: 16px; color: var(--ink); margin-bottom: 10px;
+}
+.key-warning b { color: var(--warn); }
 .key-line {
   display: flex; align-items: center; gap: 10px; margin: 8px 0;
-  background: var(--card); border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 12px;
+  background: var(--card); border: 1.5px solid var(--warn); border-radius: 10px; padding: 10px 12px;
 }
-.key-line code { flex: 1; overflow-x: auto; white-space: nowrap; font: 500 14px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.key-line code { flex: 1; overflow-x: auto; white-space: nowrap; font: 700 15px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.btn-copy-key-action { background: var(--warn); color: #1a1200; font-weight: 800; }
+.btn-copy-key-action:hover { background: color-mix(in srgb, var(--warn) 85%, white); }
+@keyframes key-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--warn) 45%, transparent); }
+  50% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--warn) 0%, transparent); }
+}
 
 /* ── Motion ── */
 @keyframes rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }

@@ -339,6 +339,16 @@ document.querySelectorAll(".btn-buy").forEach((btn) => {
   });
 });
 
+// Guards against navigating away before the key is copied — it's shown
+// exactly once and we don't store it in a recoverable form, so losing this
+// moment means the buyer loses the key. Cleared the instant they copy it.
+let keyUncopied = false;
+window.addEventListener("beforeunload", (e) => {
+  if (!keyUncopied) return;
+  e.preventDefault();
+  e.returnValue = "";
+});
+
 async function verifyAndShowKey(payment, tier) {
   setPricingError("");
   try {
@@ -356,6 +366,7 @@ async function verifyAndShowKey(payment, tier) {
     if (!res.ok || !body.ok) throw new Error(body.error || "Payment succeeded but the key couldn't be issued — please contact support.");
     $("key-value").textContent = body.api_key;
     $("key-result").hidden = false;
+    keyUncopied = true;
     $("key-result").scrollIntoView({ behavior: "smooth", block: "center" });
   } catch (e) {
     setPricingError(e.message);
@@ -364,6 +375,7 @@ async function verifyAndShowKey(payment, tier) {
 
 $("btn-copy-key").addEventListener("click", () => {
   navigator.clipboard.writeText($("key-value").textContent).then(() => {
+    keyUncopied = false;
     const btn = $("btn-copy-key");
     const old = btn.textContent;
     btn.textContent = "Copied ✓";
