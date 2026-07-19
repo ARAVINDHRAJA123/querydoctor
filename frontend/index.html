@@ -135,9 +135,8 @@
   <!-- ── API key purchase (paid tier: fail-on-severity blocking in CI) ── -->
   <section class="card pricing-card" id="pricing-card">
     <h2>🔑 Block merges in CI, not just comment</h2>
-    <p class="muted">The <a href="https://github.com/ARAVINDHRAJA123/querydoctor#-use-it-as-a-github-action" target="_blank" rel="noopener">GitHub Action</a> is free forever for PR comments. An API key
-      additionally unlocks <code>fail-on-severity</code> — actually blocking the merge — for 30 days.
-      Only the key is checked over the network; your SQL is always linted locally, never sent anywhere.</p>
+    <p class="muted">The <a href="https://github.com/ARAVINDHRAJA123/querydoctor#-use-it-as-a-github-action" target="_blank" rel="noopener">GitHub Action</a> is free forever for PR comments.
+      An API key also unlocks <code>fail-on-severity</code> — actually blocking the merge.</p>
     <div class="pricing-grid">
       <div class="price-tier">
         <h3>Team</h3>
@@ -150,6 +149,7 @@
         <button class="btn-hero btn-buy" type="button" data-tier="scale">Get API key</button>
       </div>
     </div>
+    <p class="muted pricing-footnote">Only the key is checked over the network — your SQL is always linted locally, never sent anywhere.</p>
     <p id="pricing-error" class="error" role="alert" hidden></p>
     <div id="key-result" class="key-result" hidden>
       <p>✅ Payment verified. Your API key (also copy it now — this is the only time it's shown):</p>

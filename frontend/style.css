@@ -314,23 +314,29 @@ textarea:focus {
 
 /* ── Pricing / API key purchase ── */
 .pricing-card { animation-delay: .3s; }
-.pricing-card p.muted { margin-bottom: 16px; }
+.pricing-card p.muted { margin-bottom: 18px; font-size: 14.5px; }
+.pricing-footnote { margin-top: 14px; margin-bottom: 0; font-size: 13px; }
+.pricing-card a { color: var(--brand); font-weight: 700; text-decoration: none; }
+.pricing-card a:hover { text-decoration: underline; }
 .pricing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
 .price-tier {
-  border: 1.5px solid var(--line); border-radius: 14px; padding: 18px;
-  text-align: center; display: flex; flex-direction: column; gap: 12px; align-items: center;
+  border: 1.5px solid var(--line); border-radius: 14px; padding: 20px 18px;
+  background: var(--bg);
+  text-align: center; display: flex; flex-direction: column; gap: 4px; align-items: center;
+  transition: transform .3s var(--spring), border-color .2s ease;
 }
-.price-tier h3 { font-size: 17px; }
-.price-amount { font-size: 26px; font-weight: 800; }
-.price-amount small { font-size: 14px; font-weight: 600; color: var(--muted); }
-.price-tier .btn-hero { font-size: 15px; padding: 10px 20px; width: 100%; justify-content: center; }
+.price-tier:hover { transform: translateY(-3px); border-color: var(--brand); }
+.price-tier h3 { font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.price-amount { font-size: 30px; font-weight: 800; margin-bottom: 12px; }
+.price-amount small { font-size: 13px; font-weight: 600; color: var(--muted); }
+.price-tier .btn-hero { font-size: 15px; padding: 10px 20px; width: 100%; justify-content: center; margin-top: 4px; }
 .key-result {
   margin-top: 16px; padding: 14px 16px; border-radius: 12px;
   background: color-mix(in srgb, var(--pos) 10%, transparent);
 }
 .key-line {
   display: flex; align-items: center; gap: 10px; margin: 8px 0;
-  background: var(--bg); border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 12px;
+  background: var(--card); border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 12px;
 }
 .key-line code { flex: 1; overflow-x: auto; white-space: nowrap; font: 500 14px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 
