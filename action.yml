@@ -23,6 +23,13 @@ inputs:
       Comma-separated glob pattern(s) matched against changed file paths.
     required: false
     default: '**/*.sql'
+  dbt-mode:
+    description: >-
+      Strip dbt/Jinja templating ({{ ref(...) }}, {{ source(...) }}, etc.)
+      before linting so dbt model files don't false-positive as syntax
+      errors. Best-effort regex stubbing, not a real `dbt compile`.
+    required: false
+    default: 'false'
 
 runs:
   using: 'composite'
@@ -42,4 +49,5 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github-token }}
         INPUT_DIALECT: ${{ inputs.dialect }}
         INPUT_FILE_PATTERNS: ${{ inputs.file-patterns }}
+        INPUT_DBT_MODE: ${{ inputs.dbt-mode }}
       run: python "${{ github.action_path }}/action/review_pr.py"

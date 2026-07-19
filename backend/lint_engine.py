@@ -22,6 +22,58 @@ from sqlglot.optimizer.simplify import simplify as sqlglot_simplify
 DIALECTS = ["bigquery", "postgres", "mysql", "snowflake", "spark", "sqlite", "tsql", "oracle", "duckdb", "redshift"]
 
 
+# ── dbt/Jinja stubber ────────────────────────────────────────────────────────
+# NOT a Jinja engine — evaluates nothing. Swaps common dbt Jinja constructs for
+# valid placeholder SQL so sqlglot sees plain SQL instead of false syntax
+# errors on {{ ref(...) }} etc. Each replacement keeps the same newline count
+# as what it replaced, so line numbers in lint/syntax-error output still
+# point at roughly the right spot in the ORIGINAL file.
+
+_JINJA_COMMENT_RE = re.compile(r"\{#.*?#\}", re.DOTALL)
+_JINJA_REF_RE = re.compile(r"\{\{\s*ref\(\s*((?:'[^']*'|\"[^\"]*\")(?:\s*,\s*(?:'[^']*'|\"[^\"]*\"))*)\s*\)\s*\}\}")
+_JINJA_SOURCE_RE = re.compile(r"\{\{\s*source\(\s*((?:'[^']*'|\"[^\"]*\")(?:\s*,\s*(?:'[^']*'|\"[^\"]*\"))*)\s*\)\s*\}\}")
+_JINJA_VAR_RE = re.compile(r"\{\{\s*var\(.*?\)\s*\}\}", re.DOTALL)
+_JINJA_EXPR_RE = re.compile(r"\{\{.*?\}\}", re.DOTALL)   # any remaining {{ ... }}
+_JINJA_BLOCK_RE = re.compile(r"\{%.*?%\}", re.DOTALL)    # {% if/set/macro/... %}
+_QUOTED_ARG_RE = re.compile(r"'[^']*'|\"[^\"]*\"")
+
+
+def _preserve_lines(matched: str, replacement: str) -> str:
+    return replacement + "\n" * matched.count("\n")
+
+
+def strip_jinja(sql: str) -> str:
+    """Best-effort dbt/Jinja stubber. {{ ref(...) }}/{{ source(...) }} become
+    bare placeholder identifiers, {{ var(...) }} becomes a placeholder string
+    literal, any other {{ ... }} expression or {% ... %} block is removed
+    entirely. Good enough to lint a dbt model's structure; not a substitute
+    for `dbt compile` if you need the ACTUAL rendered query."""
+    def ref_repl(m):
+        args = [a.strip("'\"") for a in _QUOTED_ARG_RE.findall(m.group(1))]
+        return _preserve_lines(m.group(0), "dbt_ref__" + "_".join(args))
+
+    def source_repl(m):
+        args = [a.strip("'\"") for a in _QUOTED_ARG_RE.findall(m.group(1))]
+        return _preserve_lines(m.group(0), "dbt_src__" + "_".join(args))
+
+    def var_repl(m):
+        return _preserve_lines(m.group(0), "'DBT_VAR'")
+
+    def expr_repl(m):
+        return _preserve_lines(m.group(0), "dbt_expr")
+
+    def strip_repl(m):
+        return _preserve_lines(m.group(0), "")
+
+    sql = _JINJA_COMMENT_RE.sub(strip_repl, sql)
+    sql = _JINJA_REF_RE.sub(ref_repl, sql)
+    sql = _JINJA_SOURCE_RE.sub(source_repl, sql)
+    sql = _JINJA_VAR_RE.sub(var_repl, sql)
+    sql = _JINJA_EXPR_RE.sub(expr_repl, sql)
+    sql = _JINJA_BLOCK_RE.sub(strip_repl, sql)
+    return sql
+
+
 # ── Lint rules ────────────────────────────────────────────────────────────────
 # Each rule returns (severity, title, message) tuples. Severities: high, medium, low.
 
@@ -136,6 +188,52 @@ def _rule_group_by_missing_column(tree):
                 return
 
 
+def _rule_case_no_else(tree):
+    for case in tree.find_all(exp.Case):
+        if case.args.get("default") is None:
+            yield ("medium", "CASE without ELSE",
+                   "A CASE with no ELSE returns NULL for any row that doesn't match a WHEN — easy to miss and a common source of silent NULLs downstream. Add an explicit ELSE, even if it's just ELSE NULL to show it's intentional.")
+            return
+
+
+def _rule_join_on_tautology(tree):
+    for j in tree.find_all(exp.Join):
+        on = j.args.get("on")
+        if isinstance(on, exp.Boolean) and on.this:
+            yield ("high", "JOIN ON true",
+                   "This join condition is always true — every row pairs with every row, a Cartesian product. Usually leftover from debugging; add the real join condition.")
+            return
+        if isinstance(on, exp.EQ) and isinstance(on.this, exp.Literal) and isinstance(on.expression, exp.Literal) and on.this.this == on.expression.this:
+            yield ("high", "JOIN ON 1=1",
+                   "This join condition is always true — every row pairs with every row, a Cartesian product. Usually leftover from debugging; add the real join condition.")
+            return
+
+
+def _rule_coalesce_in_equality(tree):
+    for eq in tree.find_all(exp.EQ):
+        if isinstance(eq.this, exp.Coalesce) or isinstance(eq.expression, exp.Coalesce):
+            yield ("medium", "COALESCE in an equality comparison",
+                   "COALESCE(col, '') = COALESCE(other, '') silently treats NULL and the fallback value as equal — two NULLs won't match here even though this pattern can make it look like they do (or a real '' value now falsely matches a NULL). Handle NULLs explicitly with IS NULL / IS NOT NULL instead.")
+            return
+
+
+def _rule_window_no_order(tree):
+    ordered_funcs = (exp.RowNumber, exp.Lag, exp.Lead)
+    for win in tree.find_all(exp.Window):
+        if isinstance(win.this, ordered_funcs) and not win.args.get("order"):
+            yield ("medium", "ROW_NUMBER/LAG/LEAD without ORDER BY",
+                   "Without an ORDER BY inside the window, the row ordering (and so the result) isn't guaranteed — the same query can return different values on different runs. Add ORDER BY inside the OVER (...) clause.")
+            return
+
+
+def _rule_insert_no_columns(tree):
+    for ins in tree.find_all(exp.Insert):
+        if isinstance(ins.this, exp.Table):
+            yield ("medium", "INSERT without a column list",
+                   "INSERT INTO t VALUES (...) relies on the table's current column order — add or reorder a column later and this silently writes data into the wrong columns. List the target columns explicitly: INSERT INTO t (col1, col2) VALUES (...).")
+            return
+
+
 RULES = [
     _rule_delete_update_no_where,
     _rule_cross_join,
@@ -149,6 +247,11 @@ RULES = [
     _rule_having_no_aggregate,
     _rule_group_by_missing_column,
     _rule_order_by_in_subquery,
+    _rule_case_no_else,
+    _rule_join_on_tautology,
+    _rule_coalesce_in_equality,
+    _rule_window_no_order,
+    _rule_insert_no_columns,
 ]
 
 SEV_WEIGHT = {"high": 30, "medium": 12, "low": 5}
@@ -183,7 +286,7 @@ def _typo_hint(sql: str) -> str | None:
     return None
 
 
-def check_sql(sql: str, dialect: str = "bigquery", target_dialect: str | None = None) -> dict:
+def check_sql(sql: str, dialect: str = "bigquery", target_dialect: str | None = None, dbt_mode: bool = False) -> dict:
     """Run the full QueryDoctor diagnosis on one blob of SQL (may contain
     multiple statements). Returns the same shape the /api/check endpoint
     sends back, minus the HTTP/rate-limit wrapper. Never raises — parse
@@ -192,6 +295,8 @@ def check_sql(sql: str, dialect: str = "bigquery", target_dialect: str | None = 
     dialect = dialect if dialect in DIALECTS else "bigquery"
     if not sql:
         return {"ok": False, "error": "Paste some SQL first."}
+    if dbt_mode:
+        sql = strip_jinja(sql)
 
     # 1. Parse (syntax check)
     try:

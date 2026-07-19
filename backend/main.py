@@ -55,6 +55,7 @@ class CheckRequest(BaseModel):
     sql: str = Field(max_length=MAX_SQL_CHARS)
     dialect: str = "bigquery"
     target_dialect: str | None = None
+    dbt_mode: bool = False
 
 
 @app.post("/api/check")
@@ -64,7 +65,7 @@ async def check(req: CheckRequest, request: Request):
     if _rate_limited(ip):
         return JSONResponse({"ok": False, "error": "Too many checks right now — take a short break and try again."}, status_code=429)
 
-    result = check_sql(req.sql, dialect=req.dialect, target_dialect=req.target_dialect)
+    result = check_sql(req.sql, dialect=req.dialect, target_dialect=req.target_dialect, dbt_mode=req.dbt_mode)
     if not result.get("ok"):
         return JSONResponse(result, status_code=422)
     return JSONResponse(result)

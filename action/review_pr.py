@@ -174,6 +174,7 @@ def main():
     api_base = os.environ.get("GITHUB_API_URL", "https://api.github.com")
     dialect = os.environ.get("INPUT_DIALECT", "bigquery")
     patterns = [p.strip() for p in os.environ.get("INPUT_FILE_PATTERNS", "**/*.sql").split(",") if p.strip()]
+    dbt_mode = os.environ.get("INPUT_DBT_MODE", "false").strip().lower() == "true"
     workspace = os.environ.get("GITHUB_WORKSPACE", ".")
 
     pr_number = get_pr_number(event_path)
@@ -195,7 +196,7 @@ def main():
         except OSError as e:
             print(f"::warning::Couldn't read {path}: {e}")
             continue
-        results[path] = check_sql(sql, dialect=dialect)
+        results[path] = check_sql(sql, dialect=dialect, dbt_mode=dbt_mode)
 
     if not results:
         return

@@ -95,6 +95,66 @@ def test_order_by_in_subquery_with_limit_is_clean():
     titles = {f["title"] for f in d["findings"]}
     assert "ORDER BY in a subquery without LIMIT" not in titles
 
+def test_case_no_else():
+    d = check("SELECT CASE WHEN x = 1 THEN 'a' END FROM t").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "CASE without ELSE" in titles
+
+def test_case_with_else_is_clean():
+    d = check("SELECT CASE WHEN x = 1 THEN 'a' ELSE 'b' END FROM t").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "CASE without ELSE" not in titles
+
+def test_join_on_1_equals_1():
+    d = check("SELECT * FROM a JOIN b ON 1 = 1").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "JOIN ON 1=1" in titles
+
+def test_join_on_true():
+    d = check("SELECT * FROM a JOIN b ON TRUE").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "JOIN ON true" in titles
+
+def test_join_on_real_condition_is_clean():
+    d = check("SELECT * FROM a JOIN b ON a.id = b.id").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "JOIN ON 1=1" not in titles and "JOIN ON true" not in titles
+
+def test_coalesce_in_equality():
+    d = check("SELECT * FROM t WHERE COALESCE(a, '') = COALESCE(b, '')").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "COALESCE in an equality comparison" in titles
+
+def test_window_no_order():
+    d = check("SELECT ROW_NUMBER() OVER (PARTITION BY g) FROM t").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "ROW_NUMBER/LAG/LEAD without ORDER BY" in titles
+
+def test_window_with_order_is_clean():
+    d = check("SELECT ROW_NUMBER() OVER (PARTITION BY g ORDER BY d) FROM t").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "ROW_NUMBER/LAG/LEAD without ORDER BY" not in titles
+
+def test_insert_no_columns():
+    d = check("INSERT INTO t VALUES (1, 2)").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "INSERT without a column list" in titles
+
+def test_insert_with_columns_is_clean():
+    d = check("INSERT INTO t (a, b) VALUES (1, 2)").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "INSERT without a column list" not in titles
+
+def test_dbt_mode_strips_jinja():
+    r = client.post("/api/check", json={"sql": "SELECT * FROM {{ ref('orders') }} WHERE {{ var('x') }} = 1", "dbt_mode": True})
+    d = r.json()
+    assert d["ok"] and d["valid"], d
+
+def test_dbt_mode_off_syntax_errors_on_jinja():
+    r = client.post("/api/check", json={"sql": "SELECT * FROM {{ ref('orders') }}", "dbt_mode": False})
+    d = r.json()
+    assert d["ok"] and not d["valid"], d
+
 def test_empty_input():
     r = check("   ")
     assert r.status_code == 422 and r.json()["ok"] is False
