@@ -213,14 +213,13 @@ html[data-theme="light"] .ico-moon { opacity: 0; transform: rotate(90deg) scale(
 .hero em {
   font-style: normal;
   background: linear-gradient(90deg, #2dd4bf, #38bdf8, #a855f7, #ef4444, #fb923c, #2dd4bf);
+  background-size: 300% 100%;
   -webkit-background-clip: text; background-clip: text; color: transparent;
-  display: inline-block; animation: hero-hue 8s linear infinite;
+  animation: hero-hue 8s ease-in-out infinite;
 }
-/* filter:hue-rotate is compositor-only (GPU), unlike animating
-   background-position on clipped text, which repaints every frame. */
 @keyframes hero-hue {
-  from { filter: hue-rotate(0deg); }
-  to   { filter: hue-rotate(360deg); }
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
 }
 .hero .sub { max-width: 620px; margin: 14px auto 0; color: var(--muted); font-size: 18px; }
 
