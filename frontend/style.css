@@ -205,7 +205,7 @@ html[data-theme="light"] .ico-moon { opacity: 0; transform: rotate(90deg) scale(
   :root:not([data-theme="dark"]) .ico-moon { opacity: 0; transform: rotate(90deg) scale(.4); }
 }
 
-.screen { max-width: 880px; margin: 0 auto; padding: 8px clamp(16px, 4vw, 40px) 48px; }
+.screen { max-width: 1240px; margin: 0 auto; padding: 8px clamp(16px, 4vw, 40px) 48px; }
 
 /* ── Hero ── */
 .hero { text-align: center; padding: clamp(12px, 3vw, 28px) 0 24px; animation: rise .6s ease both; }
@@ -227,9 +227,35 @@ html[data-theme="light"] .ico-moon { opacity: 0; transform: rotate(90deg) scale(
 .card {
   background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow);
   padding: clamp(16px, 3vw, 24px); margin-top: 14px; min-width: 0;
+  max-width: 900px; margin-left: auto; margin-right: auto;
   animation: rise .5s ease both;
 }
-.card h2 { font-size: 19px; margin-bottom: 10px; }
+/* Every card heading gets a translucent pill so it reads as a label at a
+   glance, not just slightly-bigger body text. */
+.card h2 {
+  display: inline-block; font-size: 17px; margin-bottom: 10px;
+  padding: 4px 12px; border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+/* Cleaned-up/Optimizer results: these are answers, not neutral info — a
+   green/teal gradient panel (not flat colour) sets them apart, and the
+   grid goes wide + side-by-side instead of capping to .card's 900px, so
+   large queries actually get to use the empty space either side on wide
+   screens. Wraps to one column below ~760px combined width. */
+.answer-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 14px; margin-top: 14px; max-width: none;
+}
+.answer-grid .answer-card { margin-top: 0; max-width: none; }
+.answer-card {
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--pos) 12%, var(--card)),
+    color-mix(in srgb, #14b8a6 16%, var(--card)));
+  border: 1px solid color-mix(in srgb, var(--pos) 28%, transparent);
+}
+.answer-card h2 { background: color-mix(in srgb, var(--pos) 16%, transparent); color: var(--pos); }
+#translated-card { max-width: none; }
 
 /* ── Input card ── */
 .input-card { animation-delay: .1s; }
