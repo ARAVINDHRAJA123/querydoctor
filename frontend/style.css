@@ -245,9 +245,16 @@ html[data-theme="light"] .ico-moon { opacity: 0; transform: rotate(90deg) scale(
    screens. Wraps to one column below ~760px combined width. */
 .answer-grid {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  align-items: start; /* default `stretch` forces both cards to the height
+    of the taller one, leaving dead empty space in the shorter card instead
+    of each sizing to its own content. */
   gap: 14px; margin-top: 14px; max-width: none;
 }
-.answer-grid .answer-card { margin-top: 0; max-width: none; }
+/* margin-left/right:auto from .card (used to center non-grid cards in the
+   widened .screen) makes a grid item shrink to fit-content instead of
+   stretching to fill its column — reset both explicitly, not just
+   max-width, or the shorter card's shorter text produces a narrower box. */
+.answer-grid .answer-card { margin: 0; max-width: none; width: auto; }
 .answer-card {
   background: linear-gradient(135deg,
     color-mix(in srgb, var(--pos) 12%, var(--card)),
