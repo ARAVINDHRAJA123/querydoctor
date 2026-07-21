@@ -220,6 +220,10 @@ function renderHistory() {
       const e = loadHist()[+li.dataset.i];
       if (!e) return;
       $("sql").value = e.sql;
+      void $("sql").offsetHeight; // force repaint — some WebKit builds don't
+      // visually update a textarea's displayed text after a programmatic
+      // .value set until the next interaction/reflow (matches the report:
+      // blank until clicked, but the value was already correct underneath).
       $("dialect").value = e.dialect;
       closeDrawer();
       check();
