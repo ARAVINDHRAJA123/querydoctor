@@ -297,6 +297,10 @@ textarea:focus {
 }
 
 /* ── Verdict / score ring ── */
+/* The sticky topbar (60px) sits on top of the viewport, so scrollIntoView's
+   block:"start" lands the score ring half-hidden underneath it unless we
+   tell the browser to leave room for it. */
+#results { scroll-margin-top: 76px; }
 .verdict-card { display: flex; align-items: center; gap: clamp(16px, 4vw, 30px); }
 .score-ring-wrap { position: relative; width: 120px; height: 120px; flex: none; }
 .score-ring { width: 120px; height: 120px; transform: rotate(-90deg); }
