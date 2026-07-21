@@ -167,7 +167,14 @@ function animateNumber(el, target) {
 }
 
 function scrollToResults() {
-  $("results").scrollIntoView({ behavior: "smooth", block: "start" });
+  // scroll-margin-top in CSS covers our own sticky topbar, but measure it
+  // live too — some mobile/in-app browsers add their own chrome (an
+  // "Open in app" banner, etc.) on top of that, which no CSS on this page
+  // can know about in advance.
+  const topbar = document.querySelector(".topbar");
+  const clearance = (topbar ? topbar.getBoundingClientRect().bottom : 0) + 16;
+  const top = $("results").getBoundingClientRect().top + window.scrollY - clearance;
+  window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
 }
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
