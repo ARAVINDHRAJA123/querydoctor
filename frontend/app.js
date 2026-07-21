@@ -310,7 +310,8 @@ function setPricingError(msg) {
 
 document.querySelectorAll(".btn-buy").forEach((btn) => {
   btn.addEventListener("click", async () => {
-    const tier = btn.dataset.tier;
+    const plan = btn.dataset.plan;
+    const email = $("buyer-email").value.trim();
     if (typeof Razorpay === "undefined") {
       return setPricingError("Payment widget failed to load — check your connection and try again.");
     }
@@ -324,7 +325,7 @@ document.querySelectorAll(".btn-buy").forEach((btn) => {
       const res = await fetch("api/billing/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tier }),
+        body: JSON.stringify({ plan }),
       });
       const body = await res.json();
       if (!res.ok || !body.ok) throw new Error(body.error || "Couldn't start checkout.");
@@ -335,9 +336,10 @@ document.querySelectorAll(".btn-buy").forEach((btn) => {
         currency: body.order.currency,
         order_id: body.order.id,
         name: "QueryDoctor",
-        description: `${tier[0].toUpperCase()}${tier.slice(1)} API key — 30 days`,
+        description: `${plan[0].toUpperCase()}${plan.slice(1)} API key`,
+        prefill: email ? { email } : undefined,
         theme: { color: "#6366f1" },
-        handler: (response) => verifyAndShowKey(response, tier),
+        handler: (response) => verifyAndShowKey(response, plan, email),
         modal: { ondismiss: () => { btn.disabled = false; btn.textContent = original; } },
       });
       rzp.on("payment.failed", () => setPricingError("Payment failed. You have not been charged — please try again."));
@@ -362,7 +364,7 @@ window.addEventListener("beforeunload", (e) => {
   e.returnValue = "";
 });
 
-async function verifyAndShowKey(payment, tier) {
+async function verifyAndShowKey(payment, plan, email) {
   setPricingError("");
   try {
     const res = await fetch("api/billing/verify", {
@@ -372,7 +374,7 @@ async function verifyAndShowKey(payment, tier) {
         razorpay_order_id: payment.razorpay_order_id,
         razorpay_payment_id: payment.razorpay_payment_id,
         razorpay_signature: payment.razorpay_signature,
-        tier,
+        plan, email,
       }),
     });
     const body = await res.json();

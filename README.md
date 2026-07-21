@@ -190,7 +190,7 @@ Everything above is free forever. The paid tier adds one thing: `fail-on-severit
 that actually blocks the merge instead of just leaving a comment.
 
 Get a key on [the live app](https://querydoctor-616665622891.asia-south1.run.app)
-(Razorpay checkout, 30-day key, ₹999 Team / ₹2,499 Scale — shown once at purchase,
+(Razorpay checkout, ₹499/month or ₹4,999/year — shown once at purchase,
 so save it as a repo secret right away):
 
 ```yaml

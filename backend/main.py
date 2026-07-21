@@ -104,7 +104,7 @@ async def billing_verify_key(request: Request):
     auth = request.headers.get("authorization", "")
     key = auth[len("Bearer "):].strip() if auth.startswith("Bearer ") else ""
     result = billing.verify_api_key(key)
-    return {"active": result is not None, "tier": (result or {}).get("tier")}
+    return {"active": result is not None, "plan": (result or {}).get("plan")}
 
 
 @app.get("/api/dialects")
@@ -113,7 +113,7 @@ async def dialects():
 
 
 class CreateOrderRequest(BaseModel):
-    tier: str
+    plan: str
 
 
 @app.post("/api/billing/create-order")
@@ -121,7 +121,7 @@ async def billing_create_order(req: CreateOrderRequest):
     if not billing.configured():
         return JSONResponse({"ok": False, "error": "Payments aren't configured yet."}, status_code=503)
     try:
-        order = billing.create_order(req.tier)
+        order = billing.create_order(req.plan)
     except billing.BillingError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=422)
     return {"ok": True, "order": order, "key_id": billing.RAZORPAY_KEY_ID}
@@ -131,7 +131,8 @@ class VerifyPaymentRequest(BaseModel):
     razorpay_order_id: str
     razorpay_payment_id: str
     razorpay_signature: str
-    tier: str
+    plan: str
+    email: str = ""
 
 
 @app.post("/api/billing/verify")
@@ -140,11 +141,11 @@ async def billing_verify(req: VerifyPaymentRequest):
         return JSONResponse({"ok": False, "error": "Payments aren't configured yet."}, status_code=503)
     try:
         key = billing.verify_and_provision(
-            req.razorpay_order_id, req.razorpay_payment_id, req.razorpay_signature, req.tier
+            req.razorpay_order_id, req.razorpay_payment_id, req.razorpay_signature, req.plan, req.email
         )
     except billing.BillingError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=402)
-    return {"ok": True, "api_key": key, "expires_in_days": billing.KEY_DURATION_DAYS}
+    return {"ok": True, "api_key": key}
 
 
 app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

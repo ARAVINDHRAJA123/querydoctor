@@ -154,18 +154,22 @@
     <h2>🔑 Block merges in CI, not just comment</h2>
     <p class="muted">The <a href="https://github.com/ARAVINDHRAJA123/querydoctor#-use-it-as-a-github-action" target="_blank" rel="noopener">GitHub Action</a> is free forever for PR comments.
       An API key also unlocks <code>fail-on-severity</code> — actually blocking the merge.</p>
+    <label class="mask-toggle" for="buyer-email" style="display:block;margin-bottom:10px">
+      Email (optional — for a renewal reminder 3 days before your key expires)
+      <input type="email" id="buyer-email" placeholder="you@example.com" style="display:block;margin-top:6px;width:100%;max-width:320px">
+    </label>
     <div class="pricing-grid">
       <div class="price-tier">
-        <h3>Team</h3>
-        <div class="price-amount">₹999</div>
+        <h3>Monthly</h3>
+        <div class="price-amount">₹499</div>
         <div class="price-duration">30-day access</div>
-        <button class="btn-hero btn-buy" type="button" data-tier="team">Get API key</button>
+        <button class="btn-hero btn-buy" type="button" data-plan="monthly">Get API key</button>
       </div>
       <div class="price-tier">
-        <h3>Scale</h3>
-        <div class="price-amount">₹2,499</div>
-        <div class="price-duration">30-day access</div>
-        <button class="btn-hero btn-buy" type="button" data-tier="scale">Get API key</button>
+        <h3>Annual</h3>
+        <div class="price-amount">₹4,999</div>
+        <div class="price-duration">365-day access · 2 months free</div>
+        <button class="btn-hero btn-buy" type="button" data-plan="annual">Get API key</button>
       </div>
     </div>
     <p class="muted pricing-footnote">Only the key is checked over the network — your SQL is always linted locally, never sent anywhere.</p>
@@ -173,7 +177,7 @@
     <div id="key-result" class="key-result" hidden>
       <p class="key-warning">⚠️ <b>Copy this now — it will never be shown again.</b> We don't store it in a way we can show or recover it later.</p>
       <div class="key-line"><code id="key-value"></code><button class="btn-mini btn-copy-key-action" id="btn-copy-key" type="button">Copy</button></div>
-      <p class="muted">✅ Payment verified · valid 30 days. Add it as a repo secret and pass it to the Action as <code>api-key</code>.</p>
+      <p class="muted">✅ Payment verified. Add it as a repo secret and pass it to the Action as <code>api-key</code>.</p>
     </div>
   </section>
 

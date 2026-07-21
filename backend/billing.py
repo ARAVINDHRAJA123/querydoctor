@@ -16,8 +16,12 @@ unexpired key unlocks fail_on_severity (the endpoint can actually return a
 
 Requires RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET to do anything real —
 without them, checkout/verify endpoints return 503, same pattern as
-spendstory. Prices are placeholders (owner's call to tune, like the
-SpendStory ₹19 pricing decision) — see PRICES below.
+spendstory.
+
+Single plan, two durations (the old Team/Scale split was dropped — Scale
+never actually unlocked anything different, a bug, not a feature):
+  monthly: ₹499 / 30 days
+  annual:  ₹4,999 / 365 days (~₹416/mo — 2 months free vs. paying monthly)
 """
 
 import base64
@@ -37,12 +41,12 @@ RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
 RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
 
 CURRENCY = "INR"
-KEY_DURATION_DAYS = 30
-# Placeholder pricing — tune before actually selling. Paise (₹1 = 100 paise).
-PRICES_PAISE = {
-    "team": 99900,    # ₹999 / 30 days
-    "scale": 249900,  # ₹2,499 / 30 days
+# plan -> (price in paise, key duration in days)
+PLANS = {
+    "monthly": (49900, 30),
+    "annual": (499900, 365),
 }
+REMINDER_WINDOW_DAYS = 3  # send a renewal reminder this many days before expiry
 
 _db = None
 
@@ -66,21 +70,21 @@ class BillingError(Exception):
     pass
 
 
-def create_order(tier: str) -> dict:
-    """Creates a Razorpay order for the given tier's 30-day pack. Returns
-    the order dict (has "id", "amount", "currency") straight from
+def create_order(plan: str) -> dict:
+    """Creates a Razorpay order for the given plan ("monthly" or "annual").
+    Returns the order dict (has "id", "amount", "currency") straight from
     Razorpay's API. Raises BillingError on any failure."""
     if not configured():
         raise BillingError("Payments are not configured on this server.")
-    amount = PRICES_PAISE.get(tier)
-    if amount is None:
-        raise BillingError(f"Unknown tier: {tier}")
+    if plan not in PLANS:
+        raise BillingError(f"Unknown plan: {plan}")
+    amount, _ = PLANS[plan]
 
     body = json.dumps({
         "amount": amount,
         "currency": CURRENCY,
         "receipt": f"qd_{uuid4().hex[:12]}",
-        "notes": {"tier": tier},
+        "notes": {"plan": plan},
     }).encode()
 
     req = urllib.request.Request(
@@ -115,23 +119,29 @@ def _verify_signature(order_id: str, payment_id: str, signature: str) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
-def verify_and_provision(order_id: str, payment_id: str, signature: str, tier: str) -> str:
+def verify_and_provision(order_id: str, payment_id: str, signature: str, plan: str, email: str = "") -> str:
     """Verifies the Razorpay payment signature and, if valid, provisions
-    and returns a new API key good for KEY_DURATION_DAYS. Raises
-    BillingError if the signature doesn't check out."""
+    and returns a new API key good for that plan's duration. Raises
+    BillingError if the signature doesn't check out. `email` is stored only
+    to send the 3-day renewal reminder — optional, no reminder without it."""
     if not configured():
         raise BillingError("Payments are not configured on this server.")
+    if plan not in PLANS:
+        raise BillingError(f"Unknown plan: {plan}")
     if not _verify_signature(order_id, payment_id, signature):
         raise BillingError("Payment verification failed.")
 
+    _, duration_days = PLANS[plan]
     key = _new_key()
-    expires_at = datetime.now(timezone.utc) + timedelta(days=KEY_DURATION_DAYS)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=duration_days)
     _client().collection("querydoctor_api_keys").document(key).set({
-        "tier": tier,
+        "plan": plan,
+        "email": email,
         "razorpay_order_id": order_id,
         "razorpay_payment_id": payment_id,
         "created_at": datetime.now(timezone.utc),
         "expires_at": expires_at,
+        "reminder_sent": False,
     })
     return key
 
@@ -154,4 +164,20 @@ def verify_api_key(key: str) -> dict | None:
     expires_at = data.get("expires_at")
     if expires_at is None or expires_at < datetime.now(timezone.utc):
         return None
-    return {"tier": data.get("tier", "team")}
+    return {"plan": data.get("plan", "monthly")}
+
+
+def keys_due_for_reminder() -> list[dict]:
+    """Keys expiring within REMINDER_WINDOW_DAYS that haven't had a
+    reminder sent yet. Data plumbing only — nothing calls this yet, since
+    actually emailing a reminder needs an email provider (SendGrid/Resend/
+    SMTP) that isn't wired up. Call this from whatever sends the email
+    once one is chosen, then mark reminder_sent=True on each key sent."""
+    now = datetime.now(timezone.utc)
+    cutoff = now + timedelta(days=REMINDER_WINDOW_DAYS)
+    docs = _client().collection("querydoctor_api_keys") \
+        .where("reminder_sent", "==", False) \
+        .where("expires_at", "<=", cutoff) \
+        .where("expires_at", ">", now) \
+        .stream()
+    return [{"key": d.id, **d.to_dict()} for d in docs if d.to_dict().get("email")]
