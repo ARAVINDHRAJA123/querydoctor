@@ -864,7 +864,24 @@ def check_sql(sql: str, dialect: str = "bigquery", target_dialect: str | None = 
             return re.sub(r"\s+", " ", q).strip().rstrip(";").lower()
 
         if formatted and _canon(candidate) != _canon(formatted):
-            optimized = candidate + (";" if len(opt_trees) > 1 else "")
+            # Safety tripwire: sqlglot's optimizer can decorrelate certain
+            # subqueries incorrectly (e.g. a COUNT(*) subquery whose
+            # correlated predicate is a comparison rather than a plain
+            # equality join key gets its filter silently dropped/relocated —
+            # confirmed via direct testing, not hypothetical). Never present
+            # a rewrite that introduces lint findings the original didn't
+            # have; that's a sign the rewrite likely changed the query's
+            # semantics, not just its shape.
+            orig_titles = {f["title"] for f in findings}
+            opt_findings = []
+            for ot in opt_trees:
+                for rule in RULES:
+                    for sev, title, msg in rule(ot):
+                        if not any(f["title"] == title for f in opt_findings):
+                            opt_findings.append({"severity": sev, "title": title})
+            new_titles = {f["title"] for f in opt_findings} - orig_titles
+            if not new_titles:
+                optimized = candidate + (";" if len(opt_trees) > 1 else "")
     except Exception:
         optimized = None
 

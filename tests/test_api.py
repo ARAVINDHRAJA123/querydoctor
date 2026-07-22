@@ -477,3 +477,19 @@ def test_over_partition_by_other_column_is_clean():
     d = check("SELECT ROW_NUMBER() OVER (PARTITION BY dept) AS rn FROM t", "postgres").json()
     titles = {f["title"] for f in d["findings"]}
     assert "Alias referenced inside its own OVER()" not in titles
+
+def test_optimizer_suppresses_unsound_decorrelation_rewrite():
+    # sqlglot's optimizer can decorrelate a COUNT(*) subquery whose
+    # correlated predicate is a comparison (not a plain equality join key)
+    # incorrectly — it silently drops the comparison from the count and
+    # relocates it to an outer WHERE using MAX(), which changes the query's
+    # results (confirmed by direct testing, not hypothetical). QueryDoctor
+    # must never present that rewrite as a trustworthy suggestion.
+    sql = (
+        "SELECT e.employee_id, "
+        "(SELECT COUNT(*) FROM employees e3 WHERE e3.department_id = e.department_id "
+        "AND e3.salary > e.salary) AS rank_in_dept "
+        "FROM employees e"
+    )
+    d = check(sql, "postgres").json()
+    assert d["optimized"] is None
