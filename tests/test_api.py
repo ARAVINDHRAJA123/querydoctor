@@ -216,22 +216,33 @@ def test_check_rejects_invalid_bearer_key():
 def test_left_join_nullified_by_where():
     d = check("SELECT * FROM e LEFT JOIN s ON e.id = s.eid WHERE s.d >= '2025-01-01'", "postgres").json()
     titles = {f["title"] for f in d["findings"]}
-    assert "WHERE clause nullifies a LEFT JOIN" in titles
+    assert "WHERE clause nullifies an outer JOIN" in titles
 
 def test_left_join_condition_in_on_is_clean():
     d = check("SELECT * FROM e LEFT JOIN s ON e.id = s.eid AND s.d >= '2025-01-01'", "postgres").json()
     titles = {f["title"] for f in d["findings"]}
-    assert "WHERE clause nullifies a LEFT JOIN" not in titles
+    assert "WHERE clause nullifies an outer JOIN" not in titles
 
 def test_left_join_anti_join_is_clean():
     d = check("SELECT * FROM e LEFT JOIN s ON e.id = s.eid WHERE s.id IS NULL", "postgres").json()
     titles = {f["title"] for f in d["findings"]}
-    assert "WHERE clause nullifies a LEFT JOIN" not in titles
+    assert "WHERE clause nullifies an outer JOIN" not in titles
 
 def test_left_join_ok_when_where_filters_left_side():
     d = check("SELECT * FROM e LEFT JOIN s ON e.id = s.eid WHERE e.active = true", "postgres").json()
     titles = {f["title"] for f in d["findings"]}
-    assert "WHERE clause nullifies a LEFT JOIN" not in titles
+    assert "WHERE clause nullifies an outer JOIN" not in titles
+
+def test_right_join_nullified_by_where():
+    d = check("SELECT * FROM a RIGHT JOIN b ON a.id = b.id WHERE a.status = 'x'", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "WHERE clause nullifies an outer JOIN" in titles
+
+def test_full_join_nullified_by_where_either_side():
+    d1 = check("SELECT * FROM a FULL OUTER JOIN b ON a.id = b.id WHERE a.status = 'x'", "postgres").json()
+    d2 = check("SELECT * FROM a FULL OUTER JOIN b ON a.id = b.id WHERE b.status = 'x'", "postgres").json()
+    assert "WHERE clause nullifies an outer JOIN" in {f["title"] for f in d1["findings"]}
+    assert "WHERE clause nullifies an outer JOIN" in {f["title"] for f in d2["findings"]}
 
 def test_empty_input():
     r = check("   ")
