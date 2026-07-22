@@ -16,6 +16,7 @@ import re
 
 import sqlglot
 from sqlglot import exp
+from sqlglot.tokens import Tokenizer, TokenType
 from sqlglot.optimizer import optimize as sqlglot_optimize
 from sqlglot.optimizer.simplify import simplify as sqlglot_simplify
 
@@ -313,6 +314,46 @@ def _rule_update_from_no_join_condition(tree):
             return
 
 
+def _rule_mixed_agg_no_group_by(tree):
+    """SELECT dept, COUNT(*) FROM t (no GROUP BY) isn't just bad style —
+    Postgres, BigQuery, and Snowflake reject it outright at execution
+    time; MySQL in non-strict mode silently picks an arbitrary row's
+    value for `dept` instead. sqlglot's parser doesn't validate this (it's
+    a semantic check real engines do, not a syntax rule), so it parses
+    as 'valid' even though most engines would refuse to run it.
+
+    Scoped per-SELECT via the nearest-enclosing-Select check (not just
+    `tree.find_all`) so a scalar subquery's own aggregate/columns in the
+    SELECT list don't get attributed to the outer select, or vice versa.
+    Window functions (COUNT(*) OVER (...)) don't require GROUP BY, so
+    both aggregates and columns used only inside a window are excluded.
+    Same for a column inside an aggregate's own FILTER (WHERE ...) clause
+    (COUNT(*) FILTER (WHERE paid)) — that's scoped to the aggregate, not
+    a separate grouping dimension."""
+    for sel in tree.find_all(exp.Select):
+        if sel.args.get("group"):
+            continue
+        has_plain_agg = any(
+            not agg.find_ancestor(exp.Window)
+            for proj in sel.expressions
+            for agg in proj.find_all(exp.AggFunc)
+            if agg.find_ancestor(exp.Select) is sel
+        )
+        has_bare_column = any(
+            not col.find_ancestor(exp.AggFunc, exp.Window, exp.Filter)
+            for proj in sel.expressions
+            for col in proj.find_all(exp.Column)
+            if col.find_ancestor(exp.Select) is sel
+        )
+        if has_plain_agg and has_bare_column:
+            yield ("high", "Aggregate mixed with a non-grouped column",
+                   "This mixes an aggregate (e.g. COUNT/SUM/AVG) with a plain column but has no GROUP BY — "
+                   "Postgres, BigQuery, and Snowflake reject this outright at execution time; MySQL in "
+                   "non-strict mode silently picks an arbitrary row's value instead. Add the column to "
+                   "GROUP BY, or wrap it in an aggregate too.")
+            return
+
+
 def _rule_left_join_nullified_by_where(tree):
     """The classic silent-correctness bug: a WHERE clause that compares a
     column from the optional side of an outer join filters out every row
@@ -368,6 +409,74 @@ def _rule_insert_no_columns(tree):
             return
 
 
+def detect_missing_comma(sql: str) -> list[dict]:
+    """Token-level scan for a likely missing comma in a SELECT list: two
+    bare identifiers back to back (`name amount`) with nothing between
+    them. SQL grammar allows an alias without AS (`col alias` means
+    `col AS alias`), so sqlglot's parser accepts this silently as valid —
+    no syntax error, no AST-level rule can catch it, since the parse tree
+    for a genuine `id AS x` and an accidental `name amount` looks identical.
+
+    Deliberately NOT a tree-based rule (see RULES below) — it works on the
+    raw token stream instead, scoped strictly to the region between each
+    SELECT and its own matching FROM at the same paren depth (tracked via
+    a stack, so nested subqueries in the SELECT list get their own scoped
+    region). Never scans FROM/JOIN clauses, where `orders o` / `JOIN t t2`
+    are completely normal implicit table aliases, not mistakes.
+
+    Returns findings directly (not (severity, title, message) tuples like
+    RULES) since each hit needs its own line number in the message."""
+    try:
+        tokens = Tokenizer().tokenize(sql)
+    except Exception:
+        return []
+
+    hits = []  # (line, prev_text, tok_text)
+    depth = 0
+    select_depths = []  # stack: paren depth at which each open SELECT started
+    prev = None  # previous token, only meaningful while actively scanning
+    for tok in tokens:
+        tt = tok.token_type
+        if tt == TokenType.L_PAREN:
+            depth += 1
+            prev = None
+            continue
+        if tt == TokenType.R_PAREN:
+            depth -= 1
+            prev = None
+            continue
+        if tt == TokenType.SEMICOLON:
+            select_depths = [d for d in select_depths if d < depth]
+            prev = None
+            continue
+        if tt == TokenType.SELECT:
+            select_depths.append(depth)
+            prev = None
+            continue
+        active = bool(select_depths) and depth == select_depths[-1]
+        if tt == TokenType.FROM and active:
+            select_depths.pop()
+            prev = None
+            continue
+        if active and tt == TokenType.VAR and prev is not None and prev.token_type == TokenType.VAR:
+            hits.append((tok.line, prev.text, tok.text))
+        prev = tok if active else None
+
+    if not hits:
+        return []
+    locations = "; ".join(f"line {ln}: `{a}` → `{b}`" for ln, a, b in hits[:8])
+    more = f" (+{len(hits) - 8} more)" if len(hits) > 8 else ""
+    return [{
+        "severity": "high",
+        "title": "Possible missing comma",
+        "message": (
+            "Two bare words sit right next to each other with nothing between them — this parses as a "
+            "valid implicit alias (`a b` means `a AS b`), so it's not a syntax error even if you meant two "
+            f"separate columns. Check whether a comma is missing before each of these: {locations}{more}."
+        ),
+    }]
+
+
 RULES = [
     _rule_delete_update_no_where,
     _rule_cross_join,
@@ -391,6 +500,7 @@ RULES = [
     _rule_order_by_ordinal,
     _rule_scalar_subquery_no_limit,
     _rule_update_from_no_join_condition,
+    _rule_mixed_agg_no_group_by,
 ]
 
 SEV_WEIGHT = {"high": 30, "medium": 12, "low": 5}
@@ -468,6 +578,7 @@ def check_sql(sql: str, dialect: str = "bigquery", target_dialect: str | None = 
             for sev, title, msg in rule(tree):
                 if not any(f["title"] == title for f in findings):
                     findings.append({"severity": sev, "title": title, "message": msg})
+    findings.extend(detect_missing_comma(sql))
     findings.sort(key=lambda f: ["high", "medium", "low"].index(f["severity"]))
 
     score = max(0, 100 - sum(SEV_WEIGHT[f["severity"]] for f in findings))

@@ -299,6 +299,57 @@ def test_update_from_no_where_only_flags_existing_rule():
     titles = {f["title"] for f in d["findings"]}
     assert titles == {"UPDATE without WHERE"}
 
+def test_missing_comma_detected():
+    d = check("SELECT id, name amount, created_at FROM orders", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Possible missing comma" in titles
+
+def test_missing_comma_reports_line_number():
+    sql = "SELECT\n  id,\n  name\n  amount,\n  created_at\nFROM orders"
+    d = check(sql, "postgres").json()
+    msg = next(f["message"] for f in d["findings"] if f["title"] == "Possible missing comma")
+    assert "line 3" in msg or "Line 3" in msg or "line 4" in msg
+
+def test_explicit_as_alias_is_clean():
+    d = check("SELECT name AS amount, id AS x FROM t", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Possible missing comma" not in titles
+
+def test_from_join_implicit_aliases_are_clean():
+    d = check("SELECT o.id, o.total FROM orders o JOIN customers c ON o.cust_id = c.id", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Possible missing comma" not in titles
+
+def test_missing_comma_across_semicolon_statements():
+    d = check("SELECT a, b FROM t1; SELECT x y FROM t2", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Possible missing comma" in titles
+
+def test_mixed_agg_no_group_by():
+    d = check("SELECT dept, COUNT(*) FROM employees", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Aggregate mixed with a non-grouped column" in titles
+
+def test_mixed_agg_with_group_by_is_clean():
+    d = check("SELECT dept, COUNT(*) FROM employees GROUP BY dept", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Aggregate mixed with a non-grouped column" not in titles
+
+def test_agg_alone_is_clean():
+    d = check("SELECT COUNT(*) FROM employees", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Aggregate mixed with a non-grouped column" not in titles
+
+def test_agg_filter_clause_is_clean():
+    d = check("SELECT COUNT(*) FILTER (WHERE paid) FROM orders", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Aggregate mixed with a non-grouped column" not in titles
+
+def test_agg_window_function_is_clean():
+    d = check("SELECT dept, COUNT(*) OVER (PARTITION BY dept) FROM employees", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Aggregate mixed with a non-grouped column" not in titles
+
 def test_empty_input():
     r = check("   ")
     assert r.status_code == 422 and r.json()["ok"] is False

@@ -1,6 +1,6 @@
 # 🩺 QueryDoctor
 
-**Paste SQL, get a diagnosis: syntax errors with typo hints, a 22-rule lint
+**Paste SQL, get a diagnosis: syntax errors with typo hints, a 24-check lint
 pass, a 0–100 health score, and translation across 10 SQL dialects — all
 without an LLM.**
 
@@ -8,7 +8,7 @@ without an LLM.**
 [![Live App](https://img.shields.io/badge/Live_App-querydoctor.run.app-0ea371?style=for-the-badge&logo=googlecloud&logoColor=white)](https://querydoctor-616665622891.asia-south1.run.app)
 [![Dialects](https://img.shields.io/badge/Dialects-10_supported-14b8a6?style=for-the-badge&logo=databricks&logoColor=white)](#-supported-dialects)
 [![No AI](https://img.shields.io/badge/Engine-sqlglot,_zero_LLM-06b6d4?style=for-the-badge&logo=python&logoColor=white)](#-why-no-ai)
-[![Tests](https://img.shields.io/badge/Tests-155_passing-22c55e?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-165_passing-22c55e?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 **🔗 Try it now: https://querydoctor-616665622891.asia-south1.run.app**
 
@@ -46,7 +46,7 @@ Fix the typo, run it again:
 |---|---|
 | 🚑 Syntax diagnosis | Parser errors with typo hints (`SELCT` → *did you mean SELECT?*) and a caret at the exact failing column |
 | 💯 Health score | 0–100, severity-weighted — see [how it's scored](#-how-the-health-score-works) |
-| 🩹 SQL linting | 22 AST-based rules — see the full list below |
+| 🩹 SQL linting | 23 AST-based rules plus a token-level missing-comma detector — see the full list below |
 | ✨ Formatter | Paste ugly SQL, copy back a clean version |
 | 🚀 Optimizer | Deterministic sqlglot rewrites (constant folding, dead-predicate elimination); cosmetic-only diffs are suppressed |
 | 🔁 Dialect translation | All 10×9 direction pairs verified (e.g. MySQL `IFNULL`/`GROUP_CONCAT` → BigQuery `COALESCE`/`STRING_AGG`) |
@@ -55,7 +55,7 @@ Fix the typo, run it again:
 | 🔒 Privacy | SQL checked in memory, never stored; no accounts |
 | 🤖 GitHub Action | Lints changed `.sql` files on every PR ([setup](#-use-it-as-a-github-action)) |
 
-### The 22 lint rules
+### The 24 lint checks
 
 `DELETE`/`UPDATE` without `WHERE` · `CROSS JOIN` · join without `ON`/`USING` ·
 `SELECT *` · `LIMIT` without `ORDER BY` · leading-`%` `LIKE` patterns ·
@@ -70,7 +70,11 @@ outer join (`LEFT`/`RIGHT`/`FULL`) — filtering on the optional side turns
 it into an `INNER JOIN` · `BETWEEN` with bare date literals (silently
 excludes time-of-day on the end date) · `ORDER BY` by column position ·
 scalar subquery in the `SELECT` list without `LIMIT 1` · `UPDATE ... FROM`
-with no condition linking the two tables (a cross-join update).
+with no condition linking the two tables (a cross-join update) · an
+aggregate mixed with a plain column and no `GROUP BY` (most engines reject
+this outright at execution time) · a likely missing comma — two bare
+words with nothing between them, which SQL happily parses as an implicit
+alias instead of raising a syntax error.
 
 ## 💯 How the health score works
 
@@ -111,7 +115,7 @@ a pure-Python SQL parser/transpiler, plus hand-written lint rules over its AST:
 flowchart LR
     A["📱 Browser<br/>(PWA · service worker)"] -- "JSON: sql + dialect" --> B["⚡ FastAPI on Cloud Run"]
     B --> C["🌳 sqlglot parse<br/>syntax + typo hints"]
-    C --> D["🩺 22 AST lint rules<br/>severity-weighted score"]
+    C --> D["🩺 24 lint checks<br/>severity-weighted score"]
     D --> E["✨ format + transpile<br/>10 dialects"]
     E -- "diagnosis (nothing persisted)" --> A
 ```
@@ -131,7 +135,7 @@ business logic," which is exactly the line an LLM-based tool would blur.
 
 ## 📊 By the numbers
 
-10 SQL dialects · 22 lint rules · 90 verified translation pairs · 155 tests passing
+10 SQL dialects · 24 lint checks · 90 verified translation pairs · 165 tests passing
 
 ## 🗣 Supported dialects
 
