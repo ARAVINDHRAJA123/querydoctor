@@ -1,6 +1,6 @@
 # 🩺 QueryDoctor
 
-**Paste SQL, get a diagnosis: syntax errors with typo hints, a 25-check lint
+**Paste SQL, get a diagnosis: syntax errors with typo hints, a 32-check lint
 pass, a 0–100 health score, and translation across 10 SQL dialects — all
 without an LLM.**
 
@@ -55,7 +55,7 @@ Fix the typo, run it again:
 | 🔒 Privacy | SQL checked in memory, never stored; no accounts |
 | 🤖 GitHub Action | Lints changed `.sql` files on every PR ([setup](#-use-it-as-a-github-action)) |
 
-### The 25 lint checks
+### The 32 lint checks
 
 `DELETE`/`UPDATE` without `WHERE` · `CROSS JOIN` · join without `ON`/`USING` ·
 `SELECT *` · `LIMIT` without `ORDER BY` · leading-`%` `LIKE` patterns ·
@@ -75,7 +75,15 @@ aggregate mixed with a plain column and no `GROUP BY` (most engines reject
 this outright at execution time) · an aggregate function wrapping a window
 function (`SUM(AVG(x) OVER (...))`, rejected at execution time) · a likely
 missing comma — two bare words with nothing between them, which SQL
-happily parses as an implicit alias instead of raising a syntax error.
+happily parses as an implicit alias instead of raising a syntax error ·
+`x = NULL`/`x != NULL` (always evaluates to NULL, silently returns zero
+rows — use `IS [NOT] NULL`) · `OFFSET` without `ORDER BY` · mixed ordinal
+and named columns in the same `GROUP BY`/`ORDER BY` · redundant `DISTINCT`
+with `GROUP BY` · a CTE defined but never referenced · a joined table whose
+columns are never used anywhere else in the query · an unqualified column
+in a query joining 2+ tables (works today, breaks silently if a same-named
+column is added to another table) · a column alias referenced inside its
+own `OVER()` clause (not visible there, resolves wrong or errors).
 
 ## 💯 How the health score works
 
@@ -116,7 +124,7 @@ a pure-Python SQL parser/transpiler, plus hand-written lint rules over its AST:
 flowchart LR
     A["📱 Browser<br/>(PWA · service worker)"] -- "JSON: sql + dialect" --> B["⚡ FastAPI on Cloud Run"]
     B --> C["🌳 sqlglot parse<br/>syntax + typo hints"]
-    C --> D["🩺 25 lint checks<br/>severity-weighted score"]
+    C --> D["🩺 32 lint checks<br/>severity-weighted score"]
     D --> E["✨ format + transpile<br/>10 dialects"]
     E -- "diagnosis (nothing persisted)" --> A
 ```
@@ -136,7 +144,7 @@ business logic," which is exactly the line an LLM-based tool would blur.
 
 ## 📊 By the numbers
 
-10 SQL dialects · 25 lint checks · 90 verified translation pairs · 167 tests passing
+10 SQL dialects · 32 lint checks · 90 verified translation pairs · 185 tests passing
 
 ## 🗣 Supported dialects
 

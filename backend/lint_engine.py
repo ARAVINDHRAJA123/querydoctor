@@ -334,6 +334,187 @@ def _rule_aggregate_wraps_window(tree):
             return
 
 
+def _rule_null_equality(tree):
+    """`x = NULL` and `x != NULL` are always NULL (never TRUE), never match
+    any row, and silently return zero rows instead of erroring — one of the
+    most common beginner-through-advanced SQL mistakes. `IS [NOT] NULL` is
+    the only correct way to test for NULL."""
+    for eq in tree.find_all((exp.EQ, exp.NEQ)):
+        left_null = isinstance(eq.expression, exp.Null)
+        right_null = isinstance(eq.this, exp.Null)
+        if left_null or right_null:
+            op = "=" if isinstance(eq, exp.EQ) else "!="
+            fix = "IS NULL" if isinstance(eq, exp.EQ) else "IS NOT NULL"
+            yield ("high", f"`{op} NULL` never matches",
+                   f"`{eq.sql()}` always evaluates to NULL (never TRUE) in SQL's three-valued logic, so "
+                   f"this silently returns zero rows instead of erroring. Use `{fix}` instead.")
+            return
+
+
+def _rule_offset_no_order(tree):
+    """OFFSET without ORDER BY has the same problem as the existing
+    LIMIT-without-ORDER-BY rule: without a deterministic sort, most engines
+    don't guarantee row order, so which rows get skipped (and which remain)
+    can change between runs of the identical query."""
+    for sel in tree.find_all(exp.Select):
+        if sel.args.get("offset") and not sel.args.get("order"):
+            yield ("medium", "OFFSET without ORDER BY",
+                   "OFFSET skips rows in whatever order the engine happens to return them — without an "
+                   "ORDER BY, that order isn't guaranteed, so which rows get skipped (and which come back) "
+                   "can change between identical runs of this query. Add an ORDER BY.")
+            return
+
+
+def _rule_mixed_ordinal_and_name(tree):
+    """GROUP BY 1, b or ORDER BY 1, b mixes an ordinal position with a named
+    column in the same clause — easy to misread, and error-prone the same
+    way a pure ordinal is (renumbers silently if the SELECT list changes),
+    but only half the clause gives any hint of that risk at a glance."""
+    for sel in tree.find_all(exp.Select):
+        for clause_name, clause_label in (("group", "GROUP BY"), ("order", "ORDER BY")):
+            clause = sel.args.get(clause_name)
+            if not clause:
+                continue
+            exprs = clause.expressions if clause_name == "group" else clause.expressions
+            items = [e.this if isinstance(e, exp.Ordered) else e for e in exprs]
+            has_ordinal = any(isinstance(i, exp.Literal) and not i.is_string for i in items)
+            has_name = any(not (isinstance(i, exp.Literal) and not i.is_string) for i in items)
+            if has_ordinal and has_name:
+                yield ("low", f"Mixed ordinal and column name in {clause_label}",
+                       f"This {clause_label} mixes a column position (e.g. `1`) with a named column in the "
+                       "same clause — easy to misread, and the ordinal still silently shifts if the SELECT "
+                       "list changes. Use column names throughout, or positions throughout, not both.")
+                return
+
+
+def _rule_distinct_with_group_by(tree):
+    """SELECT DISTINCT ... GROUP BY ... is redundant: GROUP BY already
+    collapses each group to one row per SELECT-list combination, so
+    DISTINCT on top does nothing except cost an extra dedup pass. Not
+    wrong, just dead weight — worth flagging as a no-op."""
+    for sel in tree.find_all(exp.Select):
+        if sel.args.get("distinct") and sel.args.get("group"):
+            yield ("low", "Redundant DISTINCT with GROUP BY",
+                   "GROUP BY already collapses rows to one per group, so DISTINCT on top is a no-op that "
+                   "just costs an extra deduplication pass. Safe to remove one or the other.")
+            return
+
+
+def _rule_unused_cte(tree):
+    """A CTE defined in WITH but never referenced anywhere in the rest of
+    the query is either dead code left over from editing, or a typo'd
+    table name elsewhere that silently fell back to a real table/CTE
+    instead of the intended one. Either way it's worth a flag."""
+    with_ = tree.args.get("with_") or tree.args.get("with")
+    if not with_:
+        return
+    cte_names = {c.alias_or_name.lower() for c in with_.expressions if c.alias_or_name}
+    if not cte_names:
+        return
+    referenced = {t.name.lower() for t in tree.find_all(exp.Table)}
+    unused = cte_names - referenced
+    if unused:
+        yield ("low", "CTE defined but never used",
+               f"`{next(iter(unused))}` is defined in the WITH clause but never referenced anywhere in the "
+               "query — likely dead code from an earlier edit, or a sign a table name elsewhere is misspelled "
+               "and silently missed this CTE.")
+        return
+
+
+def _rule_unreferenced_join(tree):
+    """A JOINed table whose alias never appears in the SELECT list, WHERE,
+    GROUP BY, HAVING, or ORDER BY contributes nothing but row multiplication
+    (or de-duplication, for a semi-join-shaped condition) — usually a sign
+    the join is leftover from a previous version of the query, or that a
+    column that should reference it was typo'd to reference something
+    else instead."""
+    for sel in tree.find_all(exp.Select):
+        from_ = sel.args.get("from_")
+        joins = sel.args.get("joins") or []
+        if not from_ or not joins:
+            continue
+        for j in joins:
+            tables = list(j.find_all(exp.Table))
+            if not tables:
+                continue
+            alias = tables[0].alias_or_name
+            if not alias:
+                continue
+            other_ons = [oj.args.get("on") for oj in joins if oj is not j and oj.args.get("on")]
+            other_parts = list(other_ons)
+            for key in ("where", "group", "having", "order"):
+                part = sel.args.get(key)
+                if part:
+                    other_parts.append(part)
+            other_parts.extend(sel.expressions)
+            used_elsewhere = any(
+                c.table == alias for part in other_parts for c in part.find_all(exp.Column)
+            )
+            if not used_elsewhere:
+                yield ("medium", "Joined table never used",
+                       f"`{alias}` is joined but its columns are never referenced anywhere else in the "
+                       "query (SELECT, WHERE, GROUP BY, HAVING, ORDER BY) — if it's only there to filter or "
+                       "multiply rows via the JOIN condition that may be intentional, but it's worth double-"
+                       "checking this join is still needed.")
+                return
+
+
+def _rule_ambiguous_column_multi_table(tree):
+    """An unqualified column reference in a query that joins 2+ tables is
+    only safe if that column name exists in exactly one of them — something
+    this tool can't verify without a schema. Even when it happens to work
+    today, adding a same-named column to the other table later turns it
+    ambiguous and breaks the query with no code change on this side."""
+    for sel in tree.find_all(exp.Select):
+        from_ = sel.args.get("from_")
+        joins = sel.args.get("joins") or []
+        if not from_ or len(joins) < 1:
+            continue
+        if not isinstance(from_.this, exp.Table) or any(not isinstance(j.this, exp.Table) for j in joins):
+            continue  # UNNEST/LATERAL/table-valued-function sources aren't schema ambiguity risks
+        table_count = 1 + len(joins)
+        if table_count < 2:
+            continue
+        for proj in sel.expressions:
+            for c in proj.find_all(exp.Column):
+                if not c.table and not (c.find_ancestor(exp.Star)):
+                    yield ("low", "Unqualified column with multiple tables joined",
+                           f"`{c.sql()}` isn't qualified with a table name, but this query joins "
+                           f"{table_count} tables — it works today only because the column happens to exist "
+                           "in just one of them. Adding a same-named column to another joined table later "
+                           "makes this ambiguous and breaks the query. Qualify it (e.g. `t.{c.sql()}`).")
+                    return
+
+
+def _rule_alias_in_own_over(tree):
+    """SELECT ROW_NUMBER() OVER (PARTITION BY rn) AS rn — the alias `rn`
+    can't refer to itself inside its own OVER() clause (aliases aren't
+    visible within the same SELECT-list expression that defines them), so
+    this either errors ("column rn does not exist") or, worse, silently
+    resolves to an unrelated column of the same name from the FROM
+    tables."""
+    for sel in tree.find_all(exp.Select):
+        for proj in sel.expressions:
+            if not isinstance(proj, exp.Alias):
+                continue
+            alias_name = proj.alias
+            if not alias_name:
+                continue
+            for win in proj.find_all(exp.Window):
+                partition = win.args.get("partition_by") or []
+                order = win.args.get("order")
+                order_cols = order.expressions if order else []
+                for c in list(partition) + list(order_cols):
+                    ref = c.this if isinstance(c, exp.Ordered) else c
+                    if isinstance(ref, exp.Column) and ref.name.lower() == alias_name.lower():
+                        yield ("high", "Alias referenced inside its own OVER()",
+                               f"`{alias_name}` is the alias being defined by this expression, but it's also "
+                               f"referenced inside its own OVER() clause — aliases aren't visible within the "
+                               "expression that defines them, so this either errors or silently resolves to "
+                               "an unrelated column of the same name instead.")
+                        return
+
+
 def _rule_mixed_agg_no_group_by(tree):
     """SELECT dept, COUNT(*) FROM t (no GROUP BY) isn't just bad style —
     Postgres, BigQuery, and Snowflake reject it outright at execution
@@ -522,6 +703,14 @@ RULES = [
     _rule_update_from_no_join_condition,
     _rule_mixed_agg_no_group_by,
     _rule_aggregate_wraps_window,
+    _rule_null_equality,
+    _rule_offset_no_order,
+    _rule_mixed_ordinal_and_name,
+    _rule_distinct_with_group_by,
+    _rule_unused_cte,
+    _rule_unreferenced_join,
+    _rule_ambiguous_column_multi_table,
+    _rule_alias_in_own_over,
 ]
 
 SEV_WEIGHT = {"high": 30, "medium": 12, "low": 5}

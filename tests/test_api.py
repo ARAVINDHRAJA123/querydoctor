@@ -387,3 +387,93 @@ def test_translation_pair(src, dst):
     assert d["valid"], f"{src} source didn't parse"
     tr = d["translated"] or ""
     assert tr.strip() and not tr.startswith("-- Couldn't translate"), f"{src}->{dst}: {tr[:80]}"
+
+def test_null_equality_eq():
+    d = check("SELECT * FROM t WHERE x = NULL", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "`= NULL` never matches" in titles
+
+def test_null_equality_neq():
+    d = check("SELECT * FROM t WHERE x != NULL", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "`!= NULL` never matches" in titles
+
+def test_null_equality_is_null_is_clean():
+    d = check("SELECT * FROM t WHERE x IS NULL", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert not any("never matches" in t for t in titles)
+
+def test_offset_without_order_by():
+    d = check("SELECT * FROM t LIMIT 10 OFFSET 20", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "OFFSET without ORDER BY" in titles
+
+def test_offset_with_order_by_is_clean():
+    d = check("SELECT * FROM t ORDER BY id LIMIT 10 OFFSET 20", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "OFFSET without ORDER BY" not in titles
+
+def test_mixed_ordinal_and_name_group_by():
+    d = check("SELECT a, b, count(*) FROM t GROUP BY 1, b", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Mixed ordinal and column name in GROUP BY" in titles
+
+def test_pure_ordinal_group_by_not_flagged_by_new_rule():
+    d = check("SELECT a, b, count(*) FROM t GROUP BY 1, 2", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Mixed ordinal and column name in GROUP BY" not in titles
+
+def test_distinct_with_group_by():
+    d = check("SELECT DISTINCT a, b FROM t GROUP BY a, b", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Redundant DISTINCT with GROUP BY" in titles
+
+def test_distinct_without_group_by_is_clean():
+    d = check("SELECT DISTINCT a, b FROM t", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Redundant DISTINCT with GROUP BY" not in titles
+
+def test_unused_cte():
+    d = check("WITH x AS (SELECT 1 AS a) SELECT * FROM t", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "CTE defined but never used" in titles
+
+def test_used_cte_is_clean():
+    d = check("WITH x AS (SELECT 1 AS a) SELECT * FROM x", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "CTE defined but never used" not in titles
+
+def test_unreferenced_joined_table():
+    d = check("SELECT a.x FROM a JOIN b ON a.id = b.id", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Joined table never used" in titles
+
+def test_referenced_joined_table_is_clean():
+    d = check("SELECT a.x, b.y FROM a JOIN b ON a.id = b.id", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Joined table never used" not in titles
+
+def test_ambiguous_unqualified_column_multi_table():
+    d = check("SELECT x FROM a JOIN b ON a.id = b.id", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Unqualified column with multiple tables joined" in titles
+
+def test_qualified_column_multi_table_is_clean():
+    d = check("SELECT a.x FROM a JOIN b ON a.id = b.id", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Unqualified column with multiple tables joined" not in titles
+
+def test_unnest_source_not_flagged_ambiguous():
+    d = check("SELECT x FROM t, UNNEST(arr) AS x", "bigquery").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Unqualified column with multiple tables joined" not in titles
+
+def test_alias_referenced_in_own_over():
+    d = check("SELECT ROW_NUMBER() OVER (PARTITION BY rn) AS rn FROM t", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Alias referenced inside its own OVER()" in titles
+
+def test_over_partition_by_other_column_is_clean():
+    d = check("SELECT ROW_NUMBER() OVER (PARTITION BY dept) AS rn FROM t", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Alias referenced inside its own OVER()" not in titles
