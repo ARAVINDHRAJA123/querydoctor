@@ -4,8 +4,9 @@ API keys stored in Firestore.
 
 Not a recurring subscription — Razorpay Subscriptions needs UPI autopay
 mandates and more compliance overhead than a solo project needs right now.
-Instead this sells a fixed-duration API key (default 30 days): same
-order-then-verify flow already proven in spendstory's payments.py, and the
+Instead this sells a fixed-duration API key (30-day monthly or 365-day
+annual plan, see PLANS below): same order-then-verify flow already
+proven in spendstory's payments.py, and the
 key is handed back directly in the verify response — no webhook, no email
 delivery step, no gap between payment and the buyer having their key.
 
@@ -147,7 +148,7 @@ def verify_and_provision(order_id: str, payment_id: str, signature: str, plan: s
 
 
 def verify_api_key(key: str) -> dict | None:
-    """Returns {"tier": ...} for a valid, unexpired key, or None. Any
+    """Returns {"plan": ...} for a valid, unexpired key, or None. Any
     Firestore error (no credentials, no network, misconfigured project)
     fails open to "no key" rather than 500ing the request — an
     unreachable billing backend should degrade to the free tier, not

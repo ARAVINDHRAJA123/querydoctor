@@ -46,7 +46,7 @@ Fix the typo, run it again:
 |---|---|
 | 🚑 Syntax diagnosis | Parser errors with typo hints (`SELCT` → *did you mean SELECT?*) and a caret at the exact failing column |
 | 💯 Health score | 0–100, severity-weighted — see [how it's scored](#-how-the-health-score-works) |
-| 🩹 SQL linting | 23 AST-based rules plus a token-level missing-comma detector — see the full list below |
+| 🩹 SQL linting | 24 AST-based rules plus a token-level missing-comma detector — see the full list below |
 | ✨ Formatter | Paste ugly SQL, copy back a clean version |
 | 🚀 Optimizer | Deterministic sqlglot rewrites (constant folding, dead-predicate elimination); cosmetic-only diffs are suppressed |
 | 🔁 Dialect translation | All 10×9 direction pairs verified (e.g. MySQL `IFNULL`/`GROUP_CONCAT` → BigQuery `COALESCE`/`STRING_AGG`) |
@@ -55,7 +55,7 @@ Fix the typo, run it again:
 | 🔒 Privacy | SQL checked in memory, never stored; no accounts |
 | 🤖 GitHub Action | Lints changed `.sql` files on every PR ([setup](#-use-it-as-a-github-action)) |
 
-### The 24 lint checks
+### The 25 lint checks
 
 `DELETE`/`UPDATE` without `WHERE` · `CROSS JOIN` · join without `ON`/`USING` ·
 `SELECT *` · `LIMIT` without `ORDER BY` · leading-`%` `LIKE` patterns ·
@@ -72,9 +72,10 @@ excludes time-of-day on the end date) · `ORDER BY` by column position ·
 scalar subquery in the `SELECT` list without `LIMIT 1` · `UPDATE ... FROM`
 with no condition linking the two tables (a cross-join update) · an
 aggregate mixed with a plain column and no `GROUP BY` (most engines reject
-this outright at execution time) · a likely missing comma — two bare
-words with nothing between them, which SQL happily parses as an implicit
-alias instead of raising a syntax error.
+this outright at execution time) · an aggregate function wrapping a window
+function (`SUM(AVG(x) OVER (...))`, rejected at execution time) · a likely
+missing comma — two bare words with nothing between them, which SQL
+happily parses as an implicit alias instead of raising a syntax error.
 
 ## 💯 How the health score works
 
@@ -115,7 +116,7 @@ a pure-Python SQL parser/transpiler, plus hand-written lint rules over its AST:
 flowchart LR
     A["📱 Browser<br/>(PWA · service worker)"] -- "JSON: sql + dialect" --> B["⚡ FastAPI on Cloud Run"]
     B --> C["🌳 sqlglot parse<br/>syntax + typo hints"]
-    C --> D["🩺 24 lint checks<br/>severity-weighted score"]
+    C --> D["🩺 25 lint checks<br/>severity-weighted score"]
     D --> E["✨ format + transpile<br/>10 dialects"]
     E -- "diagnosis (nothing persisted)" --> A
 ```
@@ -135,7 +136,7 @@ business logic," which is exactly the line an LLM-based tool would blur.
 
 ## 📊 By the numbers
 
-10 SQL dialects · 24 lint checks · 90 verified translation pairs · 165 tests passing
+10 SQL dialects · 25 lint checks · 90 verified translation pairs · 167 tests passing
 
 ## 🗣 Supported dialects
 

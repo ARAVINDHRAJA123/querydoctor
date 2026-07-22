@@ -20,8 +20,8 @@ fuzzy-matched against statement keywords, turning token soup into
 *"'SELCT' isn't a SQL command — did you mean SELECT?"* — plus a caret pointing at the
 failing column, and every lint finding written in plain English with the fix.
 
-**Health score as UX.** Nine severity-weighted rules collapse into a 0–100 score on an
-animated ring. People who can't parse a lint list understand "34/100, needs attention."
+**Health score as UX.** 25 severity-weighted lint checks collapse into a 0–100 score on
+an animated ring. People who can't parse a lint list understand "34/100, needs attention."
 
 ## Hard problems worth remembering
 
@@ -32,12 +32,12 @@ animated ring. People who can't parse a lint list understand "34/100, needs atte
    before/after comparison shows a "suggestion" for every query. The card only appears
    when the rewrite differs *after* canonicalising away aliases, quoting, and whitespace —
    so `WHERE 1=1 AND a > 2+3` → `WHERE a > 5` shows, and no-ops stay silent.
-3. **My own rate limiter caught my test suite.** The 124-case battery tripped the
+3. **My own rate limiter caught my test suite.** An early battery tripped the
    60-checks-per-10-min limit — a genuine sign the limiter works, fixed by lifting the
    limit inside tests only.
 
 ## Verification
-124-case pytest suite in CI: validity battery including rare per-dialect features
+167-case pytest suite in CI: validity battery including rare per-dialect features
 (QUALIFY, LATERAL FLATTEN, CONNECT BY, recursive CTEs, MERGE, window frames), **all 90
 dialect-translation pairs**, lint rules, typo hints, and error paths.
 
