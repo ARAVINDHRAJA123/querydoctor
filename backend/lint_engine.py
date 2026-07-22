@@ -535,6 +535,47 @@ def _typo_hint(sql: str) -> str | None:
     return None
 
 
+_CONTENT_TOKENS = {TokenType.VAR, TokenType.NUMBER, TokenType.STRING, TokenType.R_PAREN}
+
+
+def _syntax_error_hint(sql: str, line: int | None, col: int | None) -> str | None:
+    """General hint for a query that failed to parse at all — separate from
+    detect_missing_comma(), which only ever runs on SQL that already parsed
+    successfully. Covers the two most common causes of a hard syntax error:
+    unbalanced parentheses anywhere in the query, and two "content" tokens
+    (a value/column/closing-paren) sitting right next to each other with no
+    comma/operator/keyword between them near the failing position — e.g.
+    `ch.level + 1\\n  ch.path || ...` (missing comma between two SELECT-list
+    expressions) or `total_orders\\n  ch.category_id` (missing comma in a
+    GROUP BY list). Best-effort: returns None rather than guessing wrong."""
+    opens, closes = sql.count("("), sql.count(")")
+    if opens != closes:
+        kind = "closing ')'" if opens > closes else "opening '('"
+        return f"Mismatched parentheses ({opens} '(' vs {closes} ')') — you're likely missing a {kind} somewhere."
+
+    try:
+        tokens = Tokenizer().tokenize(sql)
+    except Exception:
+        return None
+    if not (line and col):
+        return None
+    # Find the token nearest the reported error position, then look just
+    # behind it — the actual missing punctuation is usually one token
+    # earlier than where the parser gave up.
+    near = [t for t in tokens if t.line == line]
+    if not near:
+        return None
+    idx_in_all = tokens.index(min(near, key=lambda t: abs(t.col - col)))
+    for i in range(max(0, idx_in_all - 3), idx_in_all + 1):
+        if i == 0:
+            continue
+        prev, cur = tokens[i - 1], tokens[i]
+        if prev.token_type in _CONTENT_TOKENS and cur.token_type in _CONTENT_TOKENS:
+            return (f"Line {cur.line}: `{prev.text}` is immediately followed by `{cur.text}` with nothing "
+                    "between them — a comma or operator is likely missing there.")
+    return None
+
+
 def check_sql(sql: str, dialect: str = "bigquery", target_dialect: str | None = None, dbt_mode: bool = False) -> dict:
     """Run the full QueryDoctor diagnosis on one blob of SQL (may contain
     multiple statements). Returns the same shape the /api/check endpoint
@@ -567,7 +608,7 @@ def check_sql(sql: str, dialect: str = "bigquery", target_dialect: str | None = 
                 "col": col,
                 "highlight": err.get("highlight"),
                 "source_line": source_line,
-                "hint": _typo_hint(sql),
+                "hint": _typo_hint(sql) or _syntax_error_hint(sql, line, col),
             },
         }
 
