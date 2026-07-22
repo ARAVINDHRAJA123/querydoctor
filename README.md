@@ -8,7 +8,7 @@ without an LLM.**
 [![Live App](https://img.shields.io/badge/Live_App-querydoctor.run.app-0ea371?style=for-the-badge&logo=googlecloud&logoColor=white)](https://querydoctor-616665622891.asia-south1.run.app)
 [![Dialects](https://img.shields.io/badge/Dialects-10_supported-14b8a6?style=for-the-badge&logo=databricks&logoColor=white)](#-supported-dialects)
 [![No AI](https://img.shields.io/badge/Engine-sqlglot,_zero_LLM-06b6d4?style=for-the-badge&logo=python&logoColor=white)](#-why-no-ai)
-[![Tests](https://img.shields.io/badge/Tests-167_passing-22c55e?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-198_passing-22c55e?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 **🔗 Try it now: https://querydoctor-616665622891.asia-south1.run.app**
 
@@ -46,7 +46,7 @@ Fix the typo, run it again:
 |---|---|
 | 🚑 Syntax diagnosis | Parser errors with typo hints (`SELCT` → *did you mean SELECT?*) and a caret at the exact failing column |
 | 💯 Health score | 0–100, severity-weighted — see [how it's scored](#-how-the-health-score-works) |
-| 🩹 SQL linting | 24 AST-based rules plus a token-level missing-comma detector — see the full list below |
+| 🩹 SQL linting | 32 AST-based rules plus a token-level missing-comma detector — see the full list below |
 | ✨ Formatter | Paste ugly SQL, copy back a clean version |
 | 🚀 Optimizer | Deterministic sqlglot rewrites (constant folding, dead-predicate elimination); cosmetic-only diffs are suppressed |
 | 🔁 Dialect translation | All 10×9 direction pairs verified (e.g. MySQL `IFNULL`/`GROUP_CONCAT` → BigQuery `COALESCE`/`STRING_AGG`) |
@@ -144,7 +144,7 @@ business logic," which is exactly the line an LLM-based tool would blur.
 
 ## 📊 By the numbers
 
-10 SQL dialects · 32 lint checks · 90 verified translation pairs · 185 tests passing
+10 SQL dialects · 32 lint checks · 90 verified translation pairs · 198 tests passing
 
 ## 🗣 Supported dialects
 

@@ -588,10 +588,28 @@ def _rule_left_join_nullified_by_where(tree):
             continue
         condition = where.this
         top_level = list(condition.flatten()) if isinstance(condition, exp.And) else [condition]
+        # An explicit `alias.col IS NOT NULL` sitting alongside other
+        # conditions ANDed at the top level is the standard, intentional way
+        # to require a match on that alias (turning the LEFT JOIN into an
+        # inner join on purpose) — any other top-level condition on that
+        # same alias is guarded by it, not a silent accident.
+        guarded_aliases = {
+            c.table
+            for cond in top_level
+            if isinstance(cond, exp.Not) and isinstance(cond.this, exp.Is)
+            for c in cond.this.this.find_all(exp.Column)
+            if c.table
+        }
         for cond in top_level:
-            if isinstance(cond, (exp.Or, exp.Is)):
-                continue  # OR-guarded or an explicit IS [NOT] NULL check — the safe patterns
+            if isinstance(cond, exp.Or):
+                continue  # OR-guarded — the safe pattern
+            if isinstance(cond, exp.Is):
+                continue  # `x IS NULL` — an explicit, intentional NULL check
+            if isinstance(cond, exp.Not) and isinstance(cond.this, exp.Is):
+                continue  # `x IS NOT NULL` itself — the guard, not the thing being guarded
             for col in cond.find_all(exp.Column):
+                if col.table in guarded_aliases:
+                    continue
                 if col.table in optional_aliases:
                     yield ("high", "WHERE clause nullifies an outer JOIN",
                            f"WHERE filters on `{col.table}.{col.this.this}`, a column from the optional side of an outer join. "

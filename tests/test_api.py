@@ -478,6 +478,30 @@ def test_over_partition_by_other_column_is_clean():
     titles = {f["title"] for f in d["findings"]}
     assert "Alias referenced inside its own OVER()" not in titles
 
+def test_left_join_where_is_not_null_guard_is_clean():
+    # `o.id IS NOT NULL` after a LEFT JOIN is the standard, intentional way
+    # to require a match — parses as NOT(IS(...)) in sqlglot, which the
+    # nullified-join rule must recognize as a safe guard, not the bug.
+    d = check("SELECT o.id FROM customers c LEFT JOIN orders o ON o.customer_id = c.id WHERE o.id IS NOT NULL", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "WHERE clause nullifies an outer JOIN" not in titles
+
+def test_left_join_where_guarded_by_is_not_null_on_same_alias_is_clean():
+    # A condition on the optional-side alias ANDed alongside an explicit
+    # `alias IS NOT NULL` guard on that same alias is intentional (turns
+    # the LEFT JOIN into an inner join on purpose) — not the silent bug.
+    d = check(
+        "SELECT o.id FROM customers c LEFT JOIN orders o ON o.customer_id = c.id "
+        "WHERE o.amount > 100 AND o.id IS NOT NULL", "postgres"
+    ).json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "WHERE clause nullifies an outer JOIN" not in titles
+
+def test_left_join_where_without_guard_still_flagged():
+    d = check("SELECT o.id FROM customers c LEFT JOIN orders o ON o.customer_id = c.id WHERE o.amount > 100", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "WHERE clause nullifies an outer JOIN" in titles
+
 def test_optimizer_suppresses_unsound_decorrelation_rewrite():
     # sqlglot's optimizer can decorrelate a COUNT(*) subquery whose
     # correlated predicate is a comparison (not a plain equality join key)
@@ -493,3 +517,41 @@ def test_optimizer_suppresses_unsound_decorrelation_rewrite():
     )
     d = check(sql, "postgres").json()
     assert d["optimized"] is None
+
+@pytest.mark.parametrize("agg,op", [
+    ("COUNT(*)", ">"), ("COUNT(*)", "<"), ("COUNT(*)", "!="),
+    ("SUM(e3.salary)", ">"), ("AVG(e3.salary)", ">"),
+    ("MIN(e3.salary)", ">"), ("MAX(e3.salary)", ">"),
+])
+def test_optimizer_suppresses_all_aggregate_comparison_decorrelation_variants(agg, op):
+    # The same unsound-decorrelation bug reproduces for every aggregate
+    # function (not just COUNT) and every comparison operator — verified
+    # broadly rather than assuming COUNT/`>` was the only broken shape.
+    sql = (
+        f"SELECT e.employee_id, (SELECT {agg} FROM employees e3 "
+        f"WHERE e3.department_id = e.department_id AND e3.salary {op} e.salary) AS r "
+        "FROM employees e"
+    )
+    d = check(sql, "postgres").json()
+    assert d["optimized"] is None
+
+def test_optimizer_allows_sound_exists_decorrelation():
+    # EXISTS with a correlated comparison predicate is decorrelated via a
+    # different (array-based) code path that IS sound — the tripwire must
+    # not suppress this just because the rewrite happens to use a LEFT
+    # JOIN guarded by an IS NOT NULL check.
+    sql = (
+        "SELECT e.employee_id FROM employees e WHERE EXISTS "
+        "(SELECT 1 FROM employees e3 WHERE e3.department_id = e.department_id "
+        "AND e3.salary > e.salary)"
+    )
+    d = check(sql, "postgres").json()
+    assert d["optimized"] is not None
+
+def test_optimizer_allows_sound_in_subquery_with_filter():
+    sql = (
+        "SELECT e.employee_id FROM employees e WHERE e.department_id IN "
+        "(SELECT e3.department_id FROM employees e3 WHERE e3.salary > 50000)"
+    )
+    d = check(sql, "postgres").json()
+    assert d["optimized"] is not None
