@@ -350,6 +350,16 @@ def test_agg_window_function_is_clean():
     titles = {f["title"] for f in d["findings"]}
     assert "Aggregate mixed with a non-grouped column" not in titles
 
+def test_aggregate_wraps_window():
+    d = check("SELECT SUM(AVG(x) OVER (PARTITION BY y)) FROM t GROUP BY y", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Aggregate function wraps a window function" in titles
+
+def test_window_wraps_aggregate_is_clean():
+    d = check("SELECT SUM(x) OVER (PARTITION BY y) FROM t", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Aggregate function wraps a window function" not in titles
+
 def test_empty_input():
     r = check("   ")
     assert r.status_code == 422 and r.json()["ok"] is False

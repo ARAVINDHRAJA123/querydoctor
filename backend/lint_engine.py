@@ -314,6 +314,26 @@ def _rule_update_from_no_join_condition(tree):
             return
 
 
+def _rule_aggregate_wraps_window(tree):
+    """SUM(AVG(x) OVER (...)) — an aggregate function directly wrapping a
+    window function's result. Rejected by Postgres/BigQuery/Snowflake at
+    execution time ("aggregate function calls cannot contain window
+    function calls"), but sqlglot's parser doesn't validate it (semantic,
+    not syntactic), so it reports "valid" on a query that will fail to
+    run. The reverse (a window function wrapping an aggregate, e.g.
+    SUM(x) OVER (...)) is the normal, correct pattern and must not be
+    flagged — only checks whether a Window is a descendant of an AggFunc,
+    never the other way around."""
+    for agg in tree.find_all(exp.AggFunc):
+        if any(isinstance(d, exp.Window) for d in agg.find_all(exp.Window)):
+            yield ("high", "Aggregate function wraps a window function",
+                   "An aggregate (SUM/AVG/COUNT/...) directly containing a window function's result "
+                   "(e.g. SUM(AVG(x) OVER (...))) is rejected at execution time by Postgres, BigQuery, and "
+                   "Snowflake — aggregates can't contain window function calls. Compute the window function "
+                   "in a subquery or CTE first, then aggregate over that.")
+            return
+
+
 def _rule_mixed_agg_no_group_by(tree):
     """SELECT dept, COUNT(*) FROM t (no GROUP BY) isn't just bad style —
     Postgres, BigQuery, and Snowflake reject it outright at execution
@@ -501,6 +521,7 @@ RULES = [
     _rule_scalar_subquery_no_limit,
     _rule_update_from_no_join_condition,
     _rule_mixed_agg_no_group_by,
+    _rule_aggregate_wraps_window,
 ]
 
 SEV_WEIGHT = {"high": 30, "medium": 12, "low": 5}
