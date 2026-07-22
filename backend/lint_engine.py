@@ -226,6 +226,93 @@ def _rule_window_no_order(tree):
             return
 
 
+_DATE_ONLY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _rule_between_date_literals(tree):
+    """BETWEEN is inclusive of the exact literal instant. On a DATE column
+    that's harmless; on a DATETIME/TIMESTAMP column, `BETWEEN 'start' AND
+    'end'` silently means `end 00:00:00` — everything after midnight on the
+    last day is excluded. Can't know the column's real type statically, so
+    this stays medium severity and phrases it as a caution, not a verdict."""
+    for b in tree.find_all(exp.Between):
+        low, high = b.args.get("low"), b.args.get("high")
+        if (isinstance(low, exp.Literal) and low.is_string and _DATE_ONLY_RE.match(low.this)
+                and isinstance(high, exp.Literal) and high.is_string and _DATE_ONLY_RE.match(high.this)):
+            yield ("medium", "BETWEEN with bare date literals",
+                   f"BETWEEN '{low.this}' AND '{high.this}' is inclusive of the exact instant "
+                   f"'{high.this} 00:00:00' — if this column has a time component, everything after "
+                   "midnight on the last day is silently excluded. If it's a DATE-only column this is "
+                   f"fine; otherwise use `>= '{low.this}' AND < '<day after {high.this}>'` instead.")
+            return
+
+
+def _rule_order_by_ordinal(tree):
+    for sel in tree.find_all(exp.Select):
+        order = sel.args.get("order")
+        if not order:
+            continue
+        for o in order.expressions:
+            if isinstance(o, exp.Ordered) and isinstance(o.this, exp.Literal) and not o.this.is_string:
+                yield ("low", "ORDER BY column position",
+                       f"ORDER BY {o.this.this} sorts by the Nth selected column, not a named one — "
+                       "reorder or add a column to the SELECT list later and the sort silently changes "
+                       "to whatever's now in that position. Use the column name instead.")
+                return
+
+
+def _rule_scalar_subquery_no_limit(tree):
+    """A subquery used as a single value in the SELECT list should be
+    guaranteed to return at most one row. An aggregate with no GROUP BY
+    always collapses to exactly one row regardless of LIMIT, so that's
+    excluded — only a bare correlated subquery without LIMIT 1 is flagged,
+    since most engines error (or pick an arbitrary row) if it ever returns
+    more than one at runtime, usually well after the query looked fine in
+    testing."""
+    for sel in tree.find_all(exp.Select):
+        for proj in sel.expressions:
+            for sq in proj.find_all(exp.Subquery):
+                inner = sq.this
+                if not isinstance(inner, exp.Select):
+                    continue
+                if inner.args.get("limit"):
+                    continue
+                if any(isinstance(e, exp.AggFunc) for e in inner.expressions) and not inner.args.get("group"):
+                    continue
+                yield ("medium", "Scalar subquery without LIMIT 1",
+                       "This subquery is used as a single value, but nothing guarantees it returns at "
+                       "most one row — if it ever matches more than one, most engines error at runtime "
+                       "(some silently pick an arbitrary row). Add LIMIT 1 if one row is genuinely expected.")
+                return
+
+
+def _rule_update_from_no_join_condition(tree):
+    """UPDATE ... FROM t2 WHERE <condition that doesn't reference t2> is a
+    cross join in disguise: every row of the target table gets updated
+    once per row of t2, using whichever one the engine happens to pick.
+    A bare UPDATE with no WHERE at all is already caught by
+    _rule_delete_update_no_where — this only covers the sneakier case
+    where a WHERE exists but never actually links the two tables. Uses a
+    conservative signal (the FROM table's alias never appears anywhere in
+    WHERE at all) to keep false positives low."""
+    for u in tree.find_all(exp.Update):
+        from_ = u.args.get("from_")
+        if not from_:
+            continue
+        where = u.args.get("where")
+        if not where:
+            continue  # already flagged as UPDATE without WHERE
+        from_aliases = {t.alias_or_name for t in from_.find_all(exp.Table)}
+        where_aliases = {c.table for c in where.find_all(exp.Column) if c.table}
+        if from_aliases and not (from_aliases & where_aliases):
+            yield ("high", "UPDATE ... FROM without a join condition",
+                   f"The WHERE clause never references `{next(iter(from_aliases))}` (the FROM table), "
+                   "so nothing links it to the table being updated — this behaves like a cross join, "
+                   "updating every target row once per row in the FROM table. Add a condition connecting "
+                   "the two tables (e.g. WHERE t1.id = t2.id).")
+            return
+
+
 def _rule_left_join_nullified_by_where(tree):
     """The classic silent-correctness bug: a WHERE clause that compares a
     column from the optional side of an outer join filters out every row
@@ -300,6 +387,10 @@ RULES = [
     _rule_window_no_order,
     _rule_insert_no_columns,
     _rule_left_join_nullified_by_where,
+    _rule_between_date_literals,
+    _rule_order_by_ordinal,
+    _rule_scalar_subquery_no_limit,
+    _rule_update_from_no_join_condition,
 ]
 
 SEV_WEIGHT = {"high": 30, "medium": 12, "low": 5}

@@ -244,6 +244,61 @@ def test_full_join_nullified_by_where_either_side():
     assert "WHERE clause nullifies an outer JOIN" in {f["title"] for f in d1["findings"]}
     assert "WHERE clause nullifies an outer JOIN" in {f["title"] for f in d2["findings"]}
 
+def test_between_bare_date_literals():
+    d = check("SELECT * FROM t WHERE d BETWEEN '2024-01-01' AND '2024-01-31'", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "BETWEEN with bare date literals" in titles
+
+def test_between_numeric_is_clean():
+    d = check("SELECT * FROM t WHERE n BETWEEN 1 AND 10", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "BETWEEN with bare date literals" not in titles
+
+def test_between_datetime_literals_is_clean():
+    d = check("SELECT * FROM t WHERE d BETWEEN '2024-01-01 00:00:00' AND '2024-01-31 23:59:59'", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "BETWEEN with bare date literals" not in titles
+
+def test_order_by_ordinal():
+    d = check("SELECT a, b FROM t ORDER BY 1", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "ORDER BY column position" in titles
+
+def test_order_by_column_name_is_clean():
+    d = check("SELECT a, b FROM t ORDER BY a", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "ORDER BY column position" not in titles
+
+def test_scalar_subquery_no_limit():
+    d = check("SELECT id, (SELECT name FROM t2 WHERE t2.id = t1.id) AS n FROM t1", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Scalar subquery without LIMIT 1" in titles
+
+def test_scalar_subquery_with_limit_is_clean():
+    d = check("SELECT id, (SELECT name FROM t2 WHERE t2.id = t1.id LIMIT 1) AS n FROM t1", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Scalar subquery without LIMIT 1" not in titles
+
+def test_scalar_subquery_aggregate_is_clean():
+    d = check("SELECT id, (SELECT MAX(amt) FROM t2 WHERE t2.id = t1.id) AS m FROM t1", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Scalar subquery without LIMIT 1" not in titles
+
+def test_update_from_missing_join_condition():
+    d = check("UPDATE t1 SET x = t2.y FROM t2 WHERE t1.active = true", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "UPDATE ... FROM without a join condition" in titles
+
+def test_update_from_with_join_condition_is_clean():
+    d = check("UPDATE t1 SET x = t2.y FROM t2 WHERE t1.id = t2.id", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "UPDATE ... FROM without a join condition" not in titles
+
+def test_update_from_no_where_only_flags_existing_rule():
+    d = check("UPDATE t1 SET x = t2.y FROM t2", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert titles == {"UPDATE without WHERE"}
+
 def test_empty_input():
     r = check("   ")
     assert r.status_code == 422 and r.json()["ok"] is False
