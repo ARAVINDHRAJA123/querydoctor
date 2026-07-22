@@ -213,6 +213,26 @@ def test_check_rejects_invalid_bearer_key():
     assert r.status_code == 200
     assert r.json()["ok"] is True
 
+def test_left_join_nullified_by_where():
+    d = check("SELECT * FROM e LEFT JOIN s ON e.id = s.eid WHERE s.d >= '2025-01-01'", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "WHERE clause nullifies a LEFT JOIN" in titles
+
+def test_left_join_condition_in_on_is_clean():
+    d = check("SELECT * FROM e LEFT JOIN s ON e.id = s.eid AND s.d >= '2025-01-01'", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "WHERE clause nullifies a LEFT JOIN" not in titles
+
+def test_left_join_anti_join_is_clean():
+    d = check("SELECT * FROM e LEFT JOIN s ON e.id = s.eid WHERE s.id IS NULL", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "WHERE clause nullifies a LEFT JOIN" not in titles
+
+def test_left_join_ok_when_where_filters_left_side():
+    d = check("SELECT * FROM e LEFT JOIN s ON e.id = s.eid WHERE e.active = true", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "WHERE clause nullifies a LEFT JOIN" not in titles
+
 def test_empty_input():
     r = check("   ")
     assert r.status_code == 422 and r.json()["ok"] is False

@@ -262,7 +262,21 @@ html[data-theme="light"] .ico-moon { opacity: 0; transform: rotate(90deg) scale(
   border: 1px solid color-mix(in srgb, var(--pos) 28%, transparent);
 }
 .answer-card h2 { background: color-mix(in srgb, var(--pos) 16%, transparent); color: var(--pos); }
-#translated-card { max-width: none; }
+/* A single answer card spanning the full wide grid looks huge/hollow —
+   cap it to the normal card width and center it, same as every other card. */
+.answer-grid.single { grid-template-columns: minmax(0, 900px); justify-content: center; }
+
+/* Translated output gets its own distinct-but-cohesive theme (cyan/blue,
+   the app's --accent) — a third kind of "answer" alongside the green
+   cleaned-up/optimizer pair, not neutral info. */
+#translated-card {
+  max-width: none;
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--accent) 12%, var(--card)),
+    color-mix(in srgb, var(--brand) 12%, var(--card)));
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+#translated-card h2 { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
 
 /* ── Input card ── */
 .input-card { animation-delay: .1s; }

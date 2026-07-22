@@ -226,6 +226,40 @@ def _rule_window_no_order(tree):
             return
 
 
+def _rule_left_join_nullified_by_where(tree):
+    """The classic silent-correctness bug: a WHERE clause that compares a
+    column from the optional (right) side of a LEFT JOIN filters out every
+    row where that side didn't match — NULL >= anything is never true — so
+    the LEFT JOIN quietly behaves like an INNER JOIN. Scoped per-SELECT
+    (including inside CTEs) so a join in one CTE doesn't false-positive
+    against an unrelated WHERE in another."""
+    for select in tree.find_all(exp.Select):
+        left_aliases = {
+            j.this.alias_or_name
+            for j in (select.args.get("joins") or [])
+            if j.args.get("side") == "LEFT"
+        }
+        if not left_aliases:
+            continue
+        where = select.args.get("where")
+        if where is None:
+            continue
+        condition = where.this
+        top_level = list(condition.flatten()) if isinstance(condition, exp.And) else [condition]
+        for cond in top_level:
+            if isinstance(cond, (exp.Or, exp.Is)):
+                continue  # OR-guarded or an explicit IS [NOT] NULL check — the safe patterns
+            for col in cond.find_all(exp.Column):
+                if col.table in left_aliases:
+                    yield ("high", "WHERE clause nullifies a LEFT JOIN",
+                           f"WHERE filters on `{col.table}.{col.this.this}`, a column from the LEFT-joined side. "
+                           "Rows with no match there have NULL here, and NULL compared to anything is never true — "
+                           "so this silently drops every non-matching row, turning the LEFT JOIN into an INNER JOIN. "
+                           "Move this condition into the JOIN's ON clause instead, or guard it with an explicit "
+                           "IS NULL check if you actually meant to require a match.")
+                    return
+
+
 def _rule_insert_no_columns(tree):
     for ins in tree.find_all(exp.Insert):
         if isinstance(ins.this, exp.Table):
@@ -252,6 +286,7 @@ RULES = [
     _rule_coalesce_in_equality,
     _rule_window_no_order,
     _rule_insert_no_columns,
+    _rule_left_join_nullified_by_where,
 ]
 
 SEV_WEIGHT = {"high": 30, "medium": 12, "low": 5}

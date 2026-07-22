@@ -144,6 +144,10 @@ function render(d) {
     $("translated-title").textContent = `🔁 In ${DIALECT_LABELS[$("target").value] || $("target").value}`;
     $("translated-code").textContent = d.translated;
   }
+  // A lone answer card stretched to the full wide grid looks huge/empty —
+  // cap it to the normal card width instead when there's only one.
+  const shownAnswers = [$("formatted-card"), $("optimized-card")].filter((c) => !c.hidden).length;
+  $("answer-grid").classList.toggle("single", shownAnswers === 1);
   scrollToResults();
 }
 
