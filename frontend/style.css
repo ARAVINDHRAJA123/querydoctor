@@ -316,6 +316,17 @@ textarea:focus {
 .btn-hero:hover { transform: translateY(-2px) scale(1.04); filter: brightness(1.05); }
 .btn-hero:active { transform: scale(.94); box-shadow: 0 4px 12px -6px color-mix(in srgb, var(--brand) 70%, transparent); }
 .btn-hero:disabled { opacity: .6; transform: none; cursor: wait; }
+/* Same size/shadow/spring treatment as .btn-hero, but forced green +
+   white text regardless of theme (unlike --brand-ink, which flips to a
+   dark ink in light mode) — used for the "Apply safe fixes" action,
+   which should read at the same visual weight as "Get API key". */
+.btn-hero-green {
+  color: #fff !important;
+  background: linear-gradient(120deg, var(--pos), var(--logo-2));
+  box-shadow: 0 10px 26px -8px color-mix(in srgb, var(--pos) 70%, transparent);
+}
+.btn-hero-green:hover { box-shadow: 0 10px 26px -8px color-mix(in srgb, var(--pos) 70%, transparent); }
+.btn-hero-green:active { box-shadow: 0 4px 12px -6px color-mix(in srgb, var(--pos) 70%, transparent); }
 .pulse-dot {
   width: 10px; height: 10px; border-radius: 50%; background: currentColor;
   animation: pulse 1.6s ease-in-out infinite;
