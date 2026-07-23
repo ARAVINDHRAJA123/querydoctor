@@ -16,6 +16,59 @@ JOIN customers c
 WHERE c.name LIKE '%kumar'
 LIMIT 10`;
 
+/* ── CodeMirror upgrade for the 3 SQL boxes (main + both Compare boxes) ──
+   Deliberately NOT the schema-input box — that's DDL-or-JSON, lower value
+   for SQL-specific highlighting, and keeping it a plain textarea is one
+   less thing that can break. Falls back to plain textareas untouched if
+   the CodeMirror script failed to load for any reason (e.g. offline first
+   load before the service worker has cached it) — never a hard dependency,
+   the app must still work without it. */
+const EDITORS = {};
+function initEditor(id) {
+  if (typeof CodeMirror === "undefined") return null;
+  const ta = $(id);
+  const cm = CodeMirror.fromTextArea(ta, {
+    mode: "text/x-sql",
+    lineNumbers: true,
+    matchBrackets: true,
+    lineWrapping: true,
+    viewportMargin: Infinity, // let the box's own CSS control height/scroll, not CodeMirror's internal virtualized viewport
+  });
+  // Keep the original <textarea> — every other line in this file reads
+  // $(id).value directly (history, sample, compare, noqa/schema logic) —
+  // in sync on every keystroke, so none of that code needs to know an
+  // editor even exists.
+  cm.on("change", () => { ta.value = cm.getValue(); });
+  EDITORS[id] = cm;
+  return cm;
+}
+
+/* Use this instead of `$(id).value = text` anywhere a SQL box's content is
+   set programmatically (sample, history, compare, clear) — a direct DOM
+   .value assignment on the original textarea does NOT propagate into the
+   CodeMirror instance sitting on top of it. */
+function setEditorValue(id, text) {
+  const cm = EDITORS[id];
+  if (cm) {
+    cm.setValue(text);
+    return;
+  }
+  // Plain-textarea fallback (CodeMirror failed to load): some WebKit builds
+  // don't visually repaint a textarea's displayed text after a programmatic
+  // .value set until the next interaction/reflow — force one.
+  $(id).value = text;
+  void $(id).offsetHeight;
+}
+
+/* CodeMirror renders incorrectly if initialized (or updated) while its
+   container is `hidden` — it can't measure a display:none element, so
+   line wrapping/height end up wrong. Call this right after un-hiding a
+   panel that contains an editor. */
+function refreshEditor(id) {
+  const cm = EDITORS[id];
+  if (cm) requestAnimationFrame(() => cm.refresh());
+}
+
 /* ── populate dialect pickers ── */
 fetch("api/dialects").then((r) => r.json()).then(({ dialects }) => {
   for (const d of dialects) {
@@ -27,7 +80,10 @@ fetch("api/dialects").then((r) => r.json()).then(({ dialects }) => {
   $("compare-dialect").value = "bigquery";
 });
 
-$("btn-sample").addEventListener("click", () => { $("sql").value = SAMPLE; $("sql").focus(); });
+$("btn-sample").addEventListener("click", () => {
+  setEditorValue("sql", SAMPLE);
+  (EDITORS.sql || $("sql")).focus();
+});
 
 $("btn-schema-toggle").addEventListener("click", () => {
   const showing = !$("schema-section").hidden;
@@ -52,6 +108,10 @@ function setMode(mode) {
   $("compare-results").hidden = true;
   setError("");
   setCompareError("");
+  // CodeMirror can't measure a display:none container — refresh whichever
+  // editor(s) just became visible so line wrapping/height render correctly.
+  if (diagnosing) refreshEditor("sql");
+  else { refreshEditor("sql-a"); refreshEditor("sql-b"); }
 }
 $("mode-diagnose").addEventListener("click", () => setMode("diagnose"));
 $("mode-compare").addEventListener("click", () => setMode("compare"));
@@ -137,11 +197,11 @@ function renderCompare(d) {
 
 $("btn-compare").addEventListener("click", compare);
 $("btn-compare-clear").addEventListener("click", () => {
-  $("sql-a").value = "";
-  $("sql-b").value = "";
+  setEditorValue("sql-a", "");
+  setEditorValue("sql-b", "");
   $("compare-results").hidden = true;
   setCompareError("");
-  $("sql-a").focus();
+  (EDITORS["sql-a"] || $("sql-a")).focus();
 });
 
 /* Accepts either a JSON schema dict ({"table": ["col", ...]}) or raw
@@ -163,15 +223,22 @@ function schemaRequestFields() {
   return { ddl: raw };
 }
 $("btn-clear").addEventListener("click", () => {
-  $("sql").value = "";
+  setEditorValue("sql", "");
   $("results").hidden = true;
   setError("");
-  $("sql").focus();
+  (EDITORS.sql || $("sql")).focus();
 });
 $("btn-check").addEventListener("click", check);
+// CodeMirror captures keydown itself once it replaces the textarea, so the
+// original element-level listener below no longer fires for keys typed
+// inside the editor — the CodeMirror instance needs its own binding too.
 $("sql").addEventListener("keydown", (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === "Enter") check();
 });
+function wireCheckShortcut(id, fn) {
+  const cm = EDITORS[id];
+  if (cm) cm.setOption("extraKeys", { "Cmd-Enter": fn, "Ctrl-Enter": fn });
+}
 
 document.querySelectorAll(".btn-copy").forEach((b) =>
   b.addEventListener("click", () => {
@@ -308,7 +375,7 @@ function render(d) {
     $("autofix-banner").hidden = false;
     $("autofix-titles").textContent = d.auto_fixed_titles.join(" · ");
     $("btn-apply-fixes").onclick = () => {
-      $("sql").value = d.auto_fixed_sql;
+      setEditorValue("sql", d.auto_fixed_sql);
       check();
     };
   }
@@ -405,11 +472,7 @@ function renderHistory() {
     li.addEventListener("click", () => {
       const e = loadHist()[+li.dataset.i];
       if (!e) return;
-      $("sql").value = e.sql;
-      void $("sql").offsetHeight; // force repaint — some WebKit builds don't
-      // visually update a textarea's displayed text after a programmatic
-      // .value set until the next interaction/reflow (matches the report:
-      // blank until clicked, but the value was already correct underneath).
+      setEditorValue("sql", e.sql);
       $("dialect").value = e.dialect;
       closeDrawer();
       check();
@@ -620,3 +683,14 @@ $("btn-copy-key").addEventListener("click", () => {
     setTimeout(() => (btn.textContent = old), 1400);
   });
 });
+
+/* ── Initialize the CodeMirror editors last, after every other listener is
+   wired — initEditor() replaces the underlying <textarea> element with
+   CodeMirror's own wrapper element, so anything depending on the original
+   textarea for event binding must already be attached by this point. */
+initEditor("sql");
+initEditor("sql-a");
+initEditor("sql-b");
+wireCheckShortcut("sql", check);
+wireCheckShortcut("sql-a", compare);
+wireCheckShortcut("sql-b", compare);

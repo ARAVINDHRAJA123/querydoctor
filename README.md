@@ -54,6 +54,7 @@ Fix the typo, run it again:
 | 🗂️ Optional schema input | Paste `CREATE TABLE` DDL or JSON in the web app to unlock Unknown table/column checks |
 | ✨ One-click auto-fix | Web app shows a banner and applies the safe fixes (above) directly into your SQL box |
 | 🔀 SQL Compare | Paste two queries, get a structural (AST-based) diff — column/join/WHERE/GROUP BY/ORDER BY/LIMIT changes described in plain English, not a text diff. Falls back to a plain formatted-text comparison for CTEs/multi-statement/non-SELECT queries rather than guessing |
+| ⌨️ Real code editor | The SQL boxes (Diagnose and both Compare panes) are CodeMirror — syntax highlighting, line numbers, bracket matching, self-hosted (no CDN) |
 | 🌗 Dark / light mode | Circular-wipe transition |
 | 🔒 Privacy | SQL checked in memory, never stored; no accounts |
 | 🤖 GitHub Action | Lints changed `.sql` files on every PR ([setup](#-use-it-as-a-github-action)) |
