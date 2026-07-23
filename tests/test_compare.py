@@ -155,3 +155,32 @@ def test_compare_never_raises_on_garbage_input():
     # No exception, whatever comes back
     compare_sql("!!! not sql at all", "@@@ also not sql", dialect="postgres")
     compare_sql(None if False else "", "", dialect="postgres")
+
+
+# ── Plain-English explainer ──
+from lint_engine import explain_sql
+
+def test_explain_simple_select():
+    r = explain_sql("SELECT a, b FROM t WHERE x > 1 GROUP BY a ORDER BY a LIMIT 5", dialect="postgres")
+    assert r["explainable"]
+    assert "`a`, `b`" in r["summary"] and "grouped by" in r["summary"] and "first 5" in r["summary"]
+
+def test_explain_join():
+    r = explain_sql("SELECT * FROM a JOIN b ON a.id = b.id", dialect="postgres")
+    assert r["explainable"]
+    assert "joined with" in r["summary"]
+
+def test_explain_aggregate_no_group_by():
+    r = explain_sql("SELECT COUNT(*) FROM t", dialect="postgres")
+    assert r["explainable"]
+    assert "single aggregate result" in r["summary"]
+
+def test_explain_cte_falls_back():
+    r = explain_sql("WITH x AS (SELECT 1) SELECT * FROM x", dialect="postgres")
+    assert not r["explainable"]
+    assert r["reason"] == "too_complex"
+
+def test_explain_syntax_error_falls_back():
+    r = explain_sql("SELCT 1", dialect="postgres")
+    assert not r["explainable"]
+    assert r["reason"] == "invalid"

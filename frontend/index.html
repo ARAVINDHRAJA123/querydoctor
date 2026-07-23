@@ -195,7 +195,9 @@
         Diagnose my SQL
       </button>
       <button id="btn-clear" class="btn-ghost" type="button">Clear</button>
+      <button id="btn-share" class="btn-mini" type="button" title="Copy a shareable link to this query">🔗 Share</button>
     </div>
+    <p id="share-loaded-note" class="noqa-note muted" hidden>🔗 Loaded from a shared link — tap "Diagnose my SQL" to check it.</p>
     <p id="error" class="error" role="alert" hidden></p>
   </section>
 
@@ -267,6 +269,11 @@
         <h2 id="verdict-title">Checking…</h2>
         <p id="verdict-sub" class="muted"></p>
       </div>
+    </div>
+
+    <div class="card" id="explain-card" hidden>
+      <h2>🗣️ In plain English</h2>
+      <p id="explain-text"></p>
     </div>
 
     <div class="card" id="syntax-card" hidden>

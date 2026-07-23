@@ -204,6 +204,71 @@ $("btn-compare-clear").addEventListener("click", () => {
   (EDITORS["sql-a"] || $("sql-a")).focus();
 });
 
+/* ── Plain-English explainer — deterministic, no LLM, fire-and-forget
+   alongside a successful check (never blocks the main diagnosis, and a
+   failure here is silent rather than surfacing a second error banner for
+   what's a bonus feature, not the core result). */
+async function fetchExplanation(sql, dialect) {
+  try {
+    const res = await fetch("api/explain", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sql, dialect }),
+    });
+    const d = await res.json();
+    if (d.ok && d.explainable) {
+      $("explain-card").hidden = false;
+      $("explain-text").textContent = d.summary;
+    }
+  } catch {
+    /* silent — the main diagnosis already succeeded, this is a bonus */
+  }
+}
+
+/* ── Shareable diagnosis links — URL-hash encoded, never auto-run on load.
+   Auto-sending SQL someone pasted into a link straight to the API without
+   them clicking anything felt wrong (it's not their action, it's whoever
+   sent them the link) — so a shared link only pre-fills the box and asks
+   for an explicit tap, same consent model as pasting it in yourself. */
+const SHARE_MAX_CHARS = 8000; // generous for a real query, keeps the URL practical
+$("btn-share").addEventListener("click", () => {
+  const sql = $("sql").value;
+  if (!sql.trim()) return setError("Paste some SQL first — nothing to share yet.");
+  if (sql.length > SHARE_MAX_CHARS) return setError(`Too long to share as a link (max ${SHARE_MAX_CHARS} characters) — copy/paste the SQL directly instead.`);
+  const url = `${location.origin}${location.pathname}#sql=${encodeURIComponent(sql)}&dialect=${encodeURIComponent($("dialect").value)}`;
+  navigator.clipboard.writeText(url).then(() => {
+    const btn = $("btn-share");
+    const old = btn.textContent;
+    btn.textContent = "Copied ✓";
+    setTimeout(() => (btn.textContent = old), 1600);
+  }).catch(() => setError("Couldn't copy the link — your browser may be blocking clipboard access."));
+});
+
+function loadFromShareLink() {
+  if (!location.hash || location.hash.length < 2) return;
+  let params;
+  try {
+    params = new URLSearchParams(location.hash.slice(1));
+  } catch {
+    return; // malformed hash — just leave the app in its normal empty state
+  }
+  const sharedSql = params.get("sql");
+  if (!sharedSql) return;
+  setEditorValue("sql", sharedSql);
+  const sharedDialect = params.get("dialect");
+  if (sharedDialect) {
+    // The dialect <select> is populated asynchronously (api/dialects); wait
+    // for it to have options before trying to set a value, or it silently
+    // no-ops on an empty <select>.
+    const trySetDialect = () => {
+      if ($("dialect").options.length > 1) $("dialect").value = sharedDialect;
+      else setTimeout(trySetDialect, 100);
+    };
+    trySetDialect();
+  }
+  $("share-loaded-note").hidden = false;
+}
+
 /* Accepts either a JSON schema dict ({"table": ["col", ...]}) or raw
    CREATE TABLE statements in the same box — parsed here only to decide
    which API field to send it as; a JSON.parse failure just means "treat
@@ -285,6 +350,7 @@ async function check() {
     }
     addToHistory(sql, $("dialect").value, d.valid ? d.score : 0, d.valid);
     render(d);
+    if (d.valid) fetchExplanation(sql, $("dialect").value);
   } catch {
     setError("Couldn't reach the doctor. Check your connection and try again.");
   } finally {
@@ -297,7 +363,7 @@ const RING_LEN = 326.7;
 
 function render(d) {
   $("results").hidden = false;
-  const cards = ["syntax-card", "findings-card", "formatted-card", "optimized-card", "translated-card"];
+  const cards = ["syntax-card", "findings-card", "formatted-card", "optimized-card", "translated-card", "explain-card"];
   cards.forEach((c) => ($(c).hidden = true));
   $("noqa-note").hidden = true;
   $("autofix-banner").hidden = true;
@@ -694,3 +760,4 @@ initEditor("sql-b");
 wireCheckShortcut("sql", check);
 wireCheckShortcut("sql-a", compare);
 wireCheckShortcut("sql-b", compare);
+loadFromShareLink();

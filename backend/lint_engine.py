@@ -1693,3 +1693,82 @@ def compare_sql(sql_a: str, sql_b: str, dialect: str = "bigquery") -> dict:
         "ok": True, "comparable": True, "detailed": True, "identical": identical,
         "differences": diffs, "a": result_a, "b": result_b,
     }
+
+
+# ── Plain-English query explainer ───────────────────────────────────────
+# Deterministic AST walk, zero LLM — same philosophy as the lint messages.
+# Scoped to a single-statement, non-CTE SELECT; anything else gets an
+# honest "too complex to summarize yet" rather than a wrong description.
+
+def explain_sql(sql: str, dialect: str = "bigquery") -> dict:
+    dialect = dialect if dialect in DIALECTS else "bigquery"
+    result = check_sql(sql, dialect=dialect)
+    if not result.get("ok") or not result.get("valid"):
+        return {"ok": True, "explainable": False, "reason": "invalid", "result": result}
+
+    try:
+        trees = sqlglot.parse(sql, read=dialect)
+    except Exception:
+        trees = None
+
+    if not trees or len(trees) != 1 or not isinstance(trees[0], exp.Select) or trees[0].args.get("with_") or trees[0].args.get("with"):
+        return {"ok": True, "explainable": False, "reason": "too_complex", "result": result}
+
+    t = trees[0]
+    parts = []
+
+    # SELECT list
+    cols = []
+    for e in t.expressions:
+        if isinstance(e, exp.Star):
+            cols.append("all columns")
+        else:
+            name = e.output_name or e.sql()
+            cols.append(f"`{name}`")
+    col_text = "everything" if any(isinstance(e, exp.Star) for e in t.expressions) and len(t.expressions) == 1 else ", ".join(cols)
+    sentence = f"This selects {col_text}"
+
+    # FROM
+    from_ = t.args.get("from_") or t.args.get("from")
+    if from_ and isinstance(from_.this, exp.Table):
+        main = from_.this
+        sentence += f" from `{main.name}`" + (f" (aliased `{main.alias_or_name}`)" if main.alias_or_name != main.name else "")
+
+    # JOINs
+    joins = t.args.get("joins") or []
+    for j in joins:
+        if isinstance(j.this, exp.Table):
+            kind = " ".join(x for x in [j.side, j.kind, "join"] if x).strip().lower() or "join"
+            on = j.args.get("on")
+            sentence += f", {kind}ed with `{j.this.name}`" + (f" on `{on.sql()}`" if on else " (no condition)")
+    parts.append(sentence + ".")
+
+    # WHERE
+    where = t.args.get("where")
+    if where:
+        cond = where.this
+        conds = [c.sql() for c in cond.flatten()] if isinstance(cond, exp.And) else [cond.sql()]
+        if len(conds) == 1:
+            parts.append(f"Only rows where `{conds[0]}` are kept.")
+        else:
+            parts.append("Only rows matching all of: " + "; ".join(f"`{c}`" for c in conds) + ".")
+
+    # GROUP BY
+    group = t.args.get("group")
+    has_agg = any(isinstance(e, exp.AggFunc) or list(e.find_all(exp.AggFunc)) for e in t.expressions)
+    if group:
+        parts.append(f"Rows are grouped by {', '.join(f'`{e.sql()}`' for e in group.expressions)}" + (", combining the aggregate values within each group." if has_agg else "."))
+    elif has_agg:
+        parts.append("All matching rows are combined into a single aggregate result (no GROUP BY, so there's exactly one output row).")
+
+    # ORDER BY
+    order = t.args.get("order")
+    if order:
+        parts.append(f"Results are sorted by {', '.join(e.sql() for e in order.expressions)}.")
+
+    # LIMIT
+    limit = t.args.get("limit")
+    if limit:
+        parts.append(f"Only the first {limit.expression.sql()} row(s) are returned.")
+
+    return {"ok": True, "explainable": True, "summary": " ".join(parts), "result": result}
