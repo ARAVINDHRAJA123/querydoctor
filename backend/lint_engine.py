@@ -519,6 +519,38 @@ def _rule_alias_in_own_over(tree):
                         return
 
 
+def _rule_self_join_same_alias(tree):
+    """`FROM employees JOIN employees ON ...` — the same table referenced
+    twice in one FROM/JOIN scope with no distinguishing alias (or the same
+    alias reused, which amounts to the same problem). sqlglot's parser
+    doesn't validate this — it's semantic, not syntactic — but every real
+    engine rejects it outright at execution time (Postgres: "table name
+    ... specified more than once"; MySQL: "Not unique table/alias"), so
+    this reports "valid" on a query that will fail to run, the same
+    category as _rule_aggregate_wraps_window. Only looks at each SELECT's
+    own direct FROM + JOIN tables (not tables inside nested subqueries,
+    which are a different naming scope and never ambiguous with these)."""
+    for sel in tree.find_all(exp.Select):
+        from_ = sel.args.get("from_") or sel.args.get("from")
+        direct_tables = []
+        if from_ and isinstance(from_.this, exp.Table):
+            direct_tables.append(from_.this)
+        for j in sel.args.get("joins") or []:
+            if isinstance(j.this, exp.Table):
+                direct_tables.append(j.this)
+        seen = set()
+        for t in direct_tables:
+            key = (t.name.lower(), t.alias_or_name.lower())
+            if key in seen:
+                yield ("high", "Self-join without a distinguishing alias",
+                       f"`{t.name}` is referenced more than once in this FROM/JOIN with the same "
+                       f"(or no) alias — every real engine rejects this outright at execution time "
+                       "(\"table name specified more than once\"), even though it parses as valid SQL. "
+                       "Give each reference to this table a distinct alias.")
+                return
+            seen.add(key)
+
+
 def _rule_mixed_agg_no_group_by(tree):
     """SELECT dept, COUNT(*) FROM t (no GROUP BY) isn't just bad style —
     Postgres, BigQuery, and Snowflake reject it outright at execution
@@ -700,6 +732,74 @@ def detect_missing_comma(sql: str) -> list[dict]:
     }]
 
 
+def _cte_names(tree) -> set:
+    """Every name introduced by a WITH clause anywhere in the tree — these
+    aren't real tables, so schema-aware checks must never flag a reference
+    to one as unknown."""
+    names = set()
+    for select in tree.find_all(exp.Select):
+        with_ = select.args.get("with_") or select.args.get("with")
+        if with_:
+            for cte in with_.expressions:
+                if cte.alias_or_name:
+                    names.add(cte.alias_or_name.lower())
+    return names
+
+
+def _rule_unknown_table(tree, schema: dict):
+    """Only runs when the caller supplies a schema (table name -> column
+    list). Flags every table reference that doesn't match anything in it —
+    almost always a typo'd or dropped table name, the single most common
+    real-world mistake a schema unlocks catching. Case-insensitive; skips
+    CTE names, which are never "real" tables. Yields a single consolidated
+    finding (like detect_missing_comma) rather than one per table, since
+    check_sql's finding-dedup keys on title alone."""
+    cte_names = _cte_names(tree)
+    schema_lower = {t.lower() for t in schema}
+    unknown = []
+    for t in tree.find_all(exp.Table):
+        name = t.name
+        if not name or name.lower() in cte_names or name.lower() in unknown:
+            continue
+        if name.lower() not in schema_lower:
+            unknown.append(name.lower())
+    if unknown:
+        names = ", ".join(f"`{n}`" for n in unknown)
+        yield ("high", "Unknown table",
+               f"{names} — doesn't match any table in the schema you provided. Check for a typo or a "
+               "table that's been renamed/dropped.")
+
+
+def _rule_unknown_column(tree, schema: dict):
+    """Only runs when a schema is supplied. Flags every qualified column
+    reference (`alias.col`) whose alias resolves to a table THAT IS in the
+    schema, but whose column name isn't one of that table's known columns —
+    a typo'd column name, or one that's been renamed/dropped since the
+    query was written. Deliberately skips columns whose table doesn't
+    resolve to a known schema table at all (already covered by
+    _rule_unknown_table, and guessing here risks false positives on
+    unresolvable aliases). Yields a single consolidated finding, same
+    reasoning as _rule_unknown_table."""
+    schema_lower = {t.lower(): {c.lower() for c in cols} for t, cols in schema.items()}
+    alias_to_table = {t.alias_or_name: t.name for t in tree.find_all(exp.Table)}
+    unknown = []
+    for c in tree.find_all(exp.Column):
+        if not c.table:
+            continue
+        real_table = alias_to_table.get(c.table)
+        if not real_table or real_table.lower() not in schema_lower:
+            continue
+        col_name = c.this.this if hasattr(c.this, "this") else str(c.this)
+        key = f"{c.table}.{col_name}"
+        if col_name.lower() not in schema_lower[real_table.lower()] and key not in unknown:
+            unknown.append(key)
+    if unknown:
+        refs = ", ".join(f"`{k}`" for k in unknown)
+        yield ("high", "Unknown column",
+               f"{refs} — the schema you provided doesn't have a column by that name on that table. Check "
+               "for a typo or a column that's been renamed/dropped.")
+
+
 RULES = [
     _rule_delete_update_no_where,
     _rule_cross_join,
@@ -733,6 +833,7 @@ RULES = [
     _rule_unreferenced_join,
     _rule_ambiguous_column_multi_table,
     _rule_alias_in_own_over,
+    _rule_self_join_same_alias,
 ]
 
 SEV_WEIGHT = {"high": 30, "medium": 12, "low": 5}
@@ -1028,11 +1129,19 @@ def _syntax_error_hint(sql: str, line: int | None, col: int | None) -> str | Non
     return None
 
 
-def check_sql(sql: str, dialect: str = "bigquery", target_dialect: str | None = None, dbt_mode: bool = False) -> dict:
+def check_sql(sql: str, dialect: str = "bigquery", target_dialect: str | None = None, dbt_mode: bool = False,
+              schema: dict | None = None) -> dict:
     """Run the full QueryDoctor diagnosis on one blob of SQL (may contain
     multiple statements). Returns the same shape the /api/check endpoint
     sends back, minus the HTTP/rate-limit wrapper. Never raises — parse
-    errors and optimizer failures degrade into fields on the result dict."""
+    errors and optimizer failures degrade into fields on the result dict.
+
+    `schema`, if supplied, is a {table_name: [column_name, ...]} dict —
+    entirely optional, and off by default. When present, it unlocks two
+    extra checks (_rule_unknown_table, _rule_unknown_column) that no purely
+    syntactic rule can make: does this table/column actually exist. These
+    run as a separate pass, not through the static RULES list, since they
+    need the schema argument every other rule doesn't take."""
     sql = sql.strip()
     dialect = dialect if dialect in DIALECTS else "bigquery"
     if not sql:
@@ -1071,6 +1180,11 @@ def check_sql(sql: str, dialect: str = "bigquery", target_dialect: str | None = 
             for sev, title, msg in rule(tree):
                 if not any(f["title"] == title for f in findings):
                     findings.append({"severity": sev, "title": title, "message": msg})
+        if schema:
+            for rule in (_rule_unknown_table, _rule_unknown_column):
+                for sev, title, msg in rule(tree, schema):
+                    if not any(f["title"] == title for f in findings):
+                        findings.append({"severity": sev, "title": title, "message": msg})
     findings.extend(detect_missing_comma(sql))
     if any(f["title"] == "WHERE clause nullifies an outer JOIN" for f in findings):
         # Execution-based second opinion, additive only: never adds a

@@ -651,3 +651,66 @@ def test_left_join_genuine_nullify_still_flagged_after_execution_check():
     d = check("SELECT o.id FROM customers c LEFT JOIN orders o ON o.customer_id = c.id WHERE o.amount > 100", "postgres").json()
     titles = {f["title"] for f in d["findings"]}
     assert "WHERE clause nullifies an outer JOIN" in titles
+
+def test_unknown_table_flagged_with_schema():
+    r = client.post("/api/check", json={
+        "sql": "SELECT * FROM employeez", "dialect": "postgres",
+        "db_schema": {"employees": ["employee_id", "salary"]},
+    })
+    d = r.json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Unknown table" in titles
+
+def test_unknown_column_flagged_with_schema():
+    r = client.post("/api/check", json={
+        "sql": "SELECT e.employee_id, e.salery FROM employees e", "dialect": "postgres",
+        "db_schema": {"employees": ["employee_id", "salary"]},
+    })
+    d = r.json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Unknown column" in titles
+
+def test_known_table_and_column_clean_with_schema():
+    r = client.post("/api/check", json={
+        "sql": "SELECT e.employee_id, e.salary FROM employees e", "dialect": "postgres",
+        "db_schema": {"employees": ["employee_id", "salary"]},
+    })
+    d = r.json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Unknown table" not in titles and "Unknown column" not in titles
+
+def test_no_schema_means_no_schema_checks():
+    r = client.post("/api/check", json={"sql": "SELECT * FROM employeez"})
+    d = r.json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Unknown table" not in titles
+
+def test_schema_too_large_rejected():
+    big_schema = {f"table{i}": ["a"] for i in range(250)}
+    r = client.post("/api/check", json={"sql": "SELECT 1", "db_schema": big_schema})
+    assert r.status_code == 422
+
+def test_unknown_table_and_column_consolidated_into_one_finding_each():
+    r = client.post("/api/check", json={
+        "sql": "SELECT a.x, b.y FROM tablea a JOIN tableb b ON a.id = b.id", "dialect": "postgres",
+        "db_schema": {"employees": ["employee_id"]},
+    })
+    d = r.json()
+    unknown_table_findings = [f for f in d["findings"] if f["title"] == "Unknown table"]
+    assert len(unknown_table_findings) == 1
+    assert "tablea" in unknown_table_findings[0]["message"] and "tableb" in unknown_table_findings[0]["message"]
+
+def test_self_join_no_alias_flagged():
+    d = check("SELECT * FROM employees JOIN employees ON employees.manager_id = employees.employee_id", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Self-join without a distinguishing alias" in titles
+
+def test_self_join_same_alias_reused_flagged():
+    d = check("SELECT * FROM employees e JOIN employees e ON e.manager_id = e.employee_id", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Self-join without a distinguishing alias" in titles
+
+def test_self_join_distinct_aliases_is_clean():
+    d = check("SELECT e1.employee_id FROM employees e1 JOIN employees e2 ON e1.manager_id = e2.employee_id", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Self-join without a distinguishing alias" not in titles

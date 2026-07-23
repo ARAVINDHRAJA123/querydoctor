@@ -68,6 +68,7 @@ class CheckRequest(BaseModel):
     target_dialect: str | None = None
     dbt_mode: bool = False
     fail_on_severity: str | None = None  # "low"/"medium"/"high" — paid-tier only
+    db_schema: dict[str, list[str]] | None = None  # optional {table: [columns]} — unlocks unknown table/column checks
 
 
 @app.post("/api/check")
@@ -83,7 +84,11 @@ async def check(req: CheckRequest, request: Request):
         if _rate_limited(ip):
             return JSONResponse({"ok": False, "error": "Too many checks right now — take a short break and try again."}, status_code=429)
 
-    result = check_sql(req.sql, dialect=req.dialect, target_dialect=req.target_dialect, dbt_mode=req.dbt_mode)
+    schema = req.db_schema
+    if schema and (len(schema) > 200 or sum(len(cols) for cols in schema.values()) > 5000):
+        return JSONResponse({"ok": False, "error": "Schema too large — max 200 tables / 5000 total columns."}, status_code=422)
+
+    result = check_sql(req.sql, dialect=req.dialect, target_dialect=req.target_dialect, dbt_mode=req.dbt_mode, schema=schema)
     if not result.get("ok"):
         return JSONResponse(result, status_code=422)
 
