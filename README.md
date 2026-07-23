@@ -8,7 +8,7 @@ without an LLM.**
 [![Live App](https://img.shields.io/badge/Live_App-querydoctor.run.app-0ea371?style=for-the-badge&logo=googlecloud&logoColor=white)](https://querydoctor-616665622891.asia-south1.run.app)
 [![Dialects](https://img.shields.io/badge/Dialects-10_supported-14b8a6?style=for-the-badge&logo=databricks&logoColor=white)](#-supported-dialects)
 [![No AI](https://img.shields.io/badge/Engine-sqlglot,_zero_LLM-06b6d4?style=for-the-badge&logo=python&logoColor=white)](#-why-no-ai)
-[![Tests](https://img.shields.io/badge/Tests-201_passing-22c55e?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-204_passing-22c55e?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 **🔗 Try it now: https://querydoctor-616665622891.asia-south1.run.app**
 
@@ -117,6 +117,17 @@ still optimized normally. QueryDoctor detects this shape structurally and
 skips the optimizer for it entirely, rather than risk showing a "cleaner"
 query that quietly returns different rows.
 
+As a second, independent line of defense on top of that structural check,
+QueryDoctor also actually **executes** the original and optimized query
+against a small synthetic in-memory SQLite dataset and compares the results
+— real verification, not just pattern-matching, catching unsound rewrites
+the structural heuristic didn't anticipate. Most real-world queries use
+functions SQLite can't run (BigQuery/Postgres-specific SQL, the array-based
+rewrites sqlglot uses for `EXISTS`/`IN`), so this comes back "inconclusive"
+far more often than not — that's fine, since it's strictly additive: it can
+only suppress a suggestion on a *confirmed* mismatch, never wave one through
+on its own.
+
 ## Limitations
 
 Being upfront about what this doesn't do:
@@ -162,7 +173,7 @@ business logic," which is exactly the line an LLM-based tool would blur.
 
 ## 📊 By the numbers
 
-10 SQL dialects · 32 lint checks · 90 verified translation pairs · 201 tests passing
+10 SQL dialects · 32 lint checks · 90 verified translation pairs · 204 tests passing
 
 ## 🗣 Supported dialects
 

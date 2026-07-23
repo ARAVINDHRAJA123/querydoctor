@@ -12,7 +12,11 @@ that's main.py's job. This file only knows SQL.
 """
 
 import difflib
+import logging
 import re
+import sqlite3
+import zlib
+from collections import Counter, defaultdict
 
 import sqlglot
 from sqlglot import exp
@@ -789,6 +793,97 @@ def _has_unsound_decorrelation_risk(tree) -> bool:
     return False
 
 
+def _schema_columns_for_verification(tree):
+    """Map each real table name referenced in the query to the set of its
+    columns the query actually touches, resolving aliases (including
+    self-join aliases like e2/e3/e4 all pointing at the same table).
+    Returns (columns_by_table, unresolved) — unresolved is True if some
+    column couldn't be confidently attributed to a table (e.g. an
+    unqualified column with 2+ tables in scope), which should abort
+    verification rather than guess wrong."""
+    alias_to_table = {}
+    for t in tree.find_all(exp.Table):
+        alias_to_table[t.alias_or_name] = t.name
+    real_tables = set(alias_to_table.values())
+    columns_by_table = defaultdict(set)
+    unresolved = False
+    for c in tree.find_all(exp.Column):
+        name = c.this.this if hasattr(c.this, "this") else str(c.this)
+        if c.table:
+            real = alias_to_table.get(c.table)
+            if real:
+                columns_by_table[real].add(name)
+            else:
+                unresolved = True
+        elif len(real_tables) == 1:
+            columns_by_table[next(iter(real_tables))].add(name)
+        else:
+            unresolved = True
+    return columns_by_table, unresolved
+
+
+def _sqlite_verify_equivalent(orig_tree, opt_tree) -> str:
+    """Second, independent line of defense against an unsound optimizer
+    rewrite, on top of _has_unsound_decorrelation_risk: actually run both
+    the original and optimized query against a small synthetic in-memory
+    SQLite dataset and compare results. This catches unsound shapes the
+    structural heuristic didn't anticipate — verification, not pattern
+    matching — but only for the subset of SQL SQLite can execute (no
+    ARRAY_AGG/UNNEST-based rewrites, no dialect-specific functions), so a
+    great many queries will come back "inconclusive". That's fine: this is
+    strictly an ADDITIVE safety net. Returns "different" (confirmed unsound
+    — the caller must suppress), "equivalent", or "inconclusive" (couldn't
+    verify either way — caller falls back to its other checks, never
+    treated as a green light on its own)."""
+    if not isinstance(orig_tree, exp.Select):
+        return "inconclusive"  # only SELECT is safe to run read-only, throwaway data
+    columns_by_table, unresolved = _schema_columns_for_verification(orig_tree)
+    if unresolved or not columns_by_table or len(columns_by_table) > 4:
+        return "inconclusive"
+    conn = sqlite3.connect(":memory:")
+    try:
+        cur = conn.cursor()
+        rows_per_table = 6
+        for table, cols in columns_by_table.items():
+            cols = sorted(cols)
+            if not cols:
+                continue
+            col_defs = ", ".join(f'"{c}"' for c in cols)
+            cur.execute(f'CREATE TABLE "{table}" ({col_defs})')
+            placeholders = ", ".join("?" for _ in cols)
+            for i in range(rows_per_table):
+                # Deterministic (not random) synthetic data: row 0 is
+                # all-NULL to exercise NULL-handling paths, other rows get
+                # small, column-varying integers so equality AND comparison
+                # predicates both produce a genuine mix of matches and
+                # mismatches across rows of the same table.
+                vals = [
+                    None if i == 0 else (i * 31 + (zlib.crc32(c.encode()) % 97)) % 4 + 1
+                    for c in cols
+                ]
+                cur.execute(f'INSERT INTO "{table}" VALUES ({placeholders})', vals)
+        conn.commit()
+        # sqlglot logs (doesn't raise) for constructs it can't translate to
+        # sqlite (PIVOT, named table-alias columns, etc.) — expected and
+        # frequent here since most real-world SQL uses functions sqlite
+        # doesn't have; silence it so "inconclusive" stays truly silent.
+        sqlglot_logger = logging.getLogger("sqlglot")
+        prev_level = sqlglot_logger.level
+        sqlglot_logger.setLevel(logging.ERROR)
+        try:
+            orig_sql = orig_tree.sql(dialect="sqlite")
+            opt_sql = opt_tree.sql(dialect="sqlite")
+        finally:
+            sqlglot_logger.setLevel(prev_level)
+        orig_rows = cur.execute(orig_sql).fetchall()
+        opt_rows = cur.execute(opt_sql).fetchall()
+        return "equivalent" if Counter(orig_rows) == Counter(opt_rows) else "different"
+    except Exception:
+        return "inconclusive"
+    finally:
+        conn.close()
+
+
 def _clean_parse_message(msg: str) -> str:
     """sqlglot errors embed raw token reprs like
     '<Token token_type: TokenType.WHERE, text: WHERE, ...>' — swap them for
@@ -949,7 +1044,17 @@ def check_sql(sql: str, dialect: str = "bigquery", target_dialect: str | None = 
                             opt_findings.append({"severity": sev, "title": title})
             new_titles = {f["title"] for f in opt_findings} - orig_titles
             if not new_titles:
-                optimized = candidate + (";" if len(opt_trees) > 1 else "")
+                # Second, independent line of defense: actually execute
+                # original vs. optimized against synthetic SQLite data
+                # rather than only pattern-matching. Only ever suppresses
+                # (a confirmed "different" result set) — "inconclusive"
+                # (most queries, since SQLite can't run every rewrite
+                # shape) never blocks a suggestion the checks above allowed.
+                if not any(
+                    _sqlite_verify_equivalent(t, ot) == "different"
+                    for t, ot in zip(trees, opt_trees)
+                ):
+                    optimized = candidate + (";" if len(opt_trees) > 1 else "")
     except Exception:
         optimized = None
 

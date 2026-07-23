@@ -593,3 +593,44 @@ def test_optimizer_allows_pure_multi_equality_correlation():
     )
     d = check(sql, "postgres").json()
     assert d["optimized"] is not None
+
+def test_sqlite_verify_independently_confirms_known_unsound_rewrite():
+    # The structural heuristic already suppresses this one, so this test
+    # exercises the SQLite execution oracle directly to prove it's a real,
+    # independent second line of defense — not dead code that happens to
+    # agree with the structural check every time.
+    from backend.lint_engine import _sqlite_verify_equivalent
+    import sqlglot
+    from sqlglot.optimizer import optimize
+    sql = (
+        "SELECT e.employee_id, (SELECT COUNT(*) FROM employees e3 "
+        "WHERE e3.department_id = e.department_id AND e3.salary > e.salary) AS r "
+        "FROM employees e"
+    )
+    t = sqlglot.parse_one(sql, read="postgres")
+    ot = optimize(t.copy(), dialect="postgres")
+    assert _sqlite_verify_equivalent(t, ot) == "different"
+
+def test_sqlite_verify_confirms_sound_rewrite_as_equivalent():
+    from backend.lint_engine import _sqlite_verify_equivalent
+    import sqlglot
+    from sqlglot.optimizer import optimize
+    sql = "SELECT * FROM employees WHERE 1=1 AND salary > 5000"
+    t = sqlglot.parse_one(sql, read="postgres")
+    ot = optimize(t.copy(), dialect="postgres")
+    assert _sqlite_verify_equivalent(t, ot) == "equivalent"
+
+def test_sqlite_verify_inconclusive_for_array_based_rewrite():
+    # EXISTS decorrelates via ARRAY_AGG/UNNEST, which sqlite can't run —
+    # must come back "inconclusive", never crash, never wrongly suppress.
+    from backend.lint_engine import _sqlite_verify_equivalent
+    import sqlglot
+    from sqlglot.optimizer import optimize
+    sql = (
+        "SELECT e.employee_id FROM employees e WHERE EXISTS "
+        "(SELECT 1 FROM employees e3 WHERE e3.department_id = e.department_id "
+        "AND e3.salary > e.salary)"
+    )
+    t = sqlglot.parse_one(sql, read="postgres")
+    ot = optimize(t.copy(), dialect="postgres")
+    assert _sqlite_verify_equivalent(t, ot) == "inconclusive"
