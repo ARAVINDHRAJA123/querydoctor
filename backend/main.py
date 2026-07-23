@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import billing
-from lint_engine import DIALECTS, SEV_WEIGHT, check_sql, parse_ddl_to_schema
+from lint_engine import DIALECTS, SEV_WEIGHT, check_sql, parse_ddl_to_schema, compare_sql
 
 SEV_ORDER = ["low", "medium", "high"]  # ascending — index used for threshold comparison
 
@@ -111,6 +111,23 @@ async def check(req: CheckRequest, request: Request):
     else:
         result["blocked"] = False
 
+    return JSONResponse(result)
+
+
+class CompareRequest(BaseModel):
+    sql_a: str = Field(max_length=MAX_SQL_CHARS)
+    sql_b: str = Field(max_length=MAX_SQL_CHARS)
+    dialect: str = "bigquery"
+
+
+@app.post("/api/compare")
+async def compare(req: CompareRequest, request: Request):
+    fwd = request.headers.get("x-forwarded-for")
+    ip = fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "unknown")
+    if _rate_limited(ip):
+        return JSONResponse({"ok": False, "error": "Too many checks right now — take a short break and try again."}, status_code=429)
+
+    result = compare_sql(req.sql_a, req.sql_b, dialect=req.dialect)
     return JSONResponse(result)
 
 

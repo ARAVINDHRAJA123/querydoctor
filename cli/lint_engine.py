@@ -1531,3 +1531,174 @@ def check_sql(sql: str, dialect: str = "bigquery", target_dialect: str | None = 
         "auto_fixed_sql": auto_fixed_sql,
         "auto_fixed_titles": sorted(auto_fixed_titles),
     }
+
+
+# ── SQL Compare ──────────────────────────────────────────────────────────
+# Deliberately scoped to a single-statement, non-CTE SELECT on both sides —
+# the shape where a per-clause structural diff can be stated with
+# confidence. Anything else (multiple statements, WITH/CTEs, non-SELECT
+# statements, a syntax error on either side) falls back to a plain
+# formatted-text line diff instead of guessing at a semantic claim that
+# might be wrong — a wrong "column renamed" claim is worse than an honest
+# "here's what changed, textually."
+
+def _select_list_diff(a: exp.Select, b: exp.Select) -> list[dict]:
+    def proj_key(e):
+        inner = e.this if isinstance(e, exp.Alias) else e
+        return inner.sql()
+
+    a_items = {proj_key(e): e.output_name for e in a.expressions}
+    b_items = {proj_key(e): e.output_name for e in b.expressions}
+    diffs = []
+    for expr, name in b_items.items():
+        if expr not in a_items:
+            diffs.append({"category": "column added", "message": f"`{expr}`" + (f" (as `{name}`)" if name != expr else "") + " was added to the SELECT list."})
+        elif a_items[expr] != name:
+            diffs.append({"category": "column renamed", "message": f"`{expr}` is now aliased `{name}` (was `{a_items[expr]}`)."})
+    for expr, name in a_items.items():
+        if expr not in b_items:
+            diffs.append({"category": "column removed", "message": f"`{expr}`" + (f" (as `{name}`)" if name != expr else "") + " was removed from the SELECT list."})
+    return diffs
+
+
+def _from_join_diff(a: exp.Select, b: exp.Select) -> list[dict]:
+    def tables(sel):
+        from_ = sel.args.get("from_") or sel.args.get("from")
+        out = {}
+        if from_ and isinstance(from_.this, exp.Table):
+            out[from_.this.alias_or_name] = ("FROM", None, None, from_.this.name)
+        for j in sel.args.get("joins") or []:
+            if isinstance(j.this, exp.Table):
+                on = j.args.get("on")
+                kind = " ".join(x for x in [j.side, j.kind, "JOIN"] if x).strip() or "JOIN"
+                out[j.this.alias_or_name] = (kind, on.sql() if on else None, None, j.this.name)
+        return out
+
+    a_tables, b_tables = tables(a), tables(b)
+    diffs = []
+    for alias, (kind, on, _, name) in b_tables.items():
+        if alias not in a_tables:
+            diffs.append({"category": "table added", "message": f"`{name}`" + (f" (as `{alias}`)" if alias != name else "") + f" was added via {kind}" + (f" ON {on}" if on else "") + "."})
+        else:
+            a_kind, a_on, _, a_name = a_tables[alias]
+            if a_kind != kind:
+                diffs.append({"category": "join type changed", "message": f"`{alias}` changed from {a_kind} to {kind}."})
+            if a_on != on:
+                diffs.append({"category": "join condition changed", "message": f"`{alias}`'s join condition changed from `{a_on}` to `{on}`."})
+    for alias, (kind, on, _, name) in a_tables.items():
+        if alias not in b_tables:
+            diffs.append({"category": "table removed", "message": f"`{name}`" + (f" (as `{alias}`)" if alias != name else "") + f" (joined via {kind}) was removed."})
+    return diffs
+
+
+def _where_diff(a: exp.Select, b: exp.Select) -> list[dict]:
+    def conditions(sel):
+        where = sel.args.get("where")
+        if not where:
+            return None
+        cond = where.this
+        if isinstance(cond, exp.And):
+            return {c.sql() for c in cond.flatten()}
+        return {cond.sql()}  # opaque: OR/single condition, treated as one atomic unit
+
+    a_conds, b_conds = conditions(a), conditions(b)
+    if a_conds is None and b_conds is None:
+        return []
+    if a_conds is None:
+        return [{"category": "WHERE added", "message": f"A WHERE clause was added: {' AND '.join(sorted(b_conds))}"}]
+    if b_conds is None:
+        return [{"category": "WHERE removed", "message": f"The WHERE clause was removed (was: {' AND '.join(sorted(a_conds))})"}]
+    diffs = []
+    for c in sorted(b_conds - a_conds):
+        diffs.append({"category": "condition added", "message": f"WHERE condition added: `{c}`"})
+    for c in sorted(a_conds - b_conds):
+        diffs.append({"category": "condition removed", "message": f"WHERE condition removed: `{c}`"})
+    return diffs
+
+
+def _list_clause_diff(a: exp.Select, b: exp.Select, key: str, label: str, order_matters: bool) -> list[dict]:
+    def items(sel):
+        clause = sel.args.get(key)
+        return [e.sql() for e in clause.expressions] if clause else None
+
+    a_items, b_items = items(a), items(b)
+    if a_items == b_items:
+        return []
+    if a_items is None:
+        return [{"category": f"{label} added", "message": f"{label} was added: {', '.join(b_items)}"}]
+    if b_items is None:
+        return [{"category": f"{label} removed", "message": f"{label} was removed (was: {', '.join(a_items)})"}]
+    if not order_matters and set(a_items) == set(b_items):
+        return [{"category": f"{label} reordered", "message": f"{label} columns reordered: {', '.join(a_items)} → {', '.join(b_items)}"}]
+    return [{"category": f"{label} changed", "message": f"{label} changed from `{', '.join(a_items)}` to `{', '.join(b_items)}`"}]
+
+
+def _limit_diff(a: exp.Select, b: exp.Select) -> list[dict]:
+    a_limit = a.args.get("limit")
+    b_limit = b.args.get("limit")
+    a_text = a_limit.sql() if a_limit else None
+    b_text = b_limit.sql() if b_limit else None
+    if a_text == b_text:
+        return []
+    if a_text is None:
+        return [{"category": "LIMIT added", "message": f"{b_text} was added."}]
+    if b_text is None:
+        return [{"category": "LIMIT removed", "message": f"{a_text} was removed."}]
+    return [{"category": "LIMIT changed", "message": f"Changed from {a_text} to {b_text}."}]
+
+
+def compare_sql(sql_a: str, sql_b: str, dialect: str = "bigquery") -> dict:
+    """Structural (AST-based) diff between two queries. Never raises."""
+    dialect = dialect if dialect in DIALECTS else "bigquery"
+    result_a = check_sql(sql_a, dialect=dialect)
+    result_b = check_sql(sql_b, dialect=dialect)
+
+    if not result_a.get("ok") or not result_a.get("valid"):
+        return {"ok": True, "comparable": False, "reason": "a_invalid", "a": result_a, "b": result_b}
+    if not result_b.get("ok") or not result_b.get("valid"):
+        return {"ok": True, "comparable": False, "reason": "b_invalid", "a": result_a, "b": result_b}
+
+    try:
+        trees_a = sqlglot.parse(sql_a, read=dialect)
+        trees_b = sqlglot.parse(sql_b, read=dialect)
+    except Exception:
+        trees_a = trees_b = None
+
+    def simple_select(trees):
+        if not trees or len(trees) != 1:
+            return None
+        t = trees[0]
+        if not isinstance(t, exp.Select):
+            return None
+        if t.args.get("with_") or t.args.get("with"):
+            return None
+        return t
+
+    ta, tb = simple_select(trees_a), simple_select(trees_b)
+
+    fmt_a = result_a["formatted"]
+    fmt_b = result_b["formatted"]
+    identical = fmt_a == fmt_b
+
+    if ta is None or tb is None:
+        # Too complex (or a parse hiccup) for a per-clause diff — fall back
+        # to an honest "here's the formatted text of each" rather than a
+        # semantic claim we can't back up structurally.
+        return {
+            "ok": True, "comparable": True, "detailed": False, "identical": identical,
+            "a": result_a, "b": result_b,
+        }
+
+    diffs = []
+    if not identical:
+        diffs.extend(_select_list_diff(ta, tb))
+        diffs.extend(_from_join_diff(ta, tb))
+        diffs.extend(_where_diff(ta, tb))
+        diffs.extend(_list_clause_diff(ta, tb, "group", "GROUP BY", order_matters=False))
+        diffs.extend(_list_clause_diff(ta, tb, "order", "ORDER BY", order_matters=True))
+        diffs.extend(_limit_diff(ta, tb))
+
+    return {
+        "ok": True, "comparable": True, "detailed": True, "identical": identical,
+        "differences": diffs, "a": result_a, "b": result_b,
+    }

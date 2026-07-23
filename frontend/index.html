@@ -152,6 +152,11 @@
     <p class="sub">Paste a query, tap Diagnose. Instant syntax check, a health score, and plain-English advice — even if you started SQL yesterday.</p>
   </section>
 
+  <div class="mode-toggle" role="tablist" aria-label="Choose a tool">
+    <button id="mode-diagnose" class="mode-btn active" type="button" role="tab" aria-selected="true">🩺 Diagnose</button>
+    <button id="mode-compare" class="mode-btn" type="button" role="tab" aria-selected="false">🔀 Compare</button>
+  </div>
+
   <!-- ── Input card ── -->
   <section class="card input-card">
     <div class="toolbar">
@@ -191,6 +196,59 @@
       <button id="btn-clear" class="btn-ghost" type="button">Clear</button>
     </div>
     <p id="error" class="error" role="alert" hidden></p>
+  </section>
+
+  <!-- ── Compare card ── -->
+  <section class="card compare-card" id="compare-card" hidden>
+    <div class="toolbar">
+      <label class="tool">
+        <span>Both are</span>
+        <select id="compare-dialect"></select>
+      </label>
+    </div>
+    <div class="compare-grid">
+      <div class="compare-col">
+        <label class="schema-label" for="sql-a">Query A</label>
+        <textarea id="sql-a" spellcheck="false" autocapitalize="off" autocomplete="off"
+          placeholder="SELECT customer, SUM(amount)&#10;FROM orders&#10;GROUP BY customer"></textarea>
+      </div>
+      <div class="compare-col">
+        <label class="schema-label" for="sql-b">Query B</label>
+        <textarea id="sql-b" spellcheck="false" autocapitalize="off" autocomplete="off"
+          placeholder="SELECT customer, SUM(amount)&#10;FROM orders&#10;WHERE amount > 0&#10;GROUP BY customer"></textarea>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="btn-compare" class="btn-hero" type="button">
+        <span class="pulse-dot" aria-hidden="true"></span>
+        Compare
+      </button>
+      <button id="btn-compare-clear" class="btn-ghost" type="button">Clear</button>
+    </div>
+    <p id="compare-error" class="error" role="alert" hidden></p>
+
+    <div id="compare-results" hidden>
+      <div class="card" id="compare-notcomparable-card" hidden>
+        <h2>🚑 Can't compare yet</h2>
+        <p id="compare-notcomparable-msg" class="syntax-msg"></p>
+      </div>
+      <div class="card answer-card" id="compare-identical-card" hidden>
+        <h2>✅ Functionally identical</h2>
+        <p>These two queries produce the same structure — no meaningful differences found.</p>
+      </div>
+      <div class="card" id="compare-fallback-card" hidden>
+        <h2>ℹ️ Too complex for a detailed diff</h2>
+        <p class="muted">CTEs, multiple statements, or non-SELECT queries aren't broken down clause-by-clause yet — here's the formatted text of each to compare by eye.</p>
+        <div class="answer-grid">
+          <div class="card answer-card"><div class="code-head"><h2>Query A</h2></div><pre id="compare-fallback-a" class="code"></pre></div>
+          <div class="card answer-card"><div class="code-head"><h2>Query B</h2></div><pre id="compare-fallback-b" class="code"></pre></div>
+        </div>
+      </div>
+      <div class="card" id="compare-diffs-card" hidden>
+        <h2>🔀 What changed</h2>
+        <ul id="compare-diffs" class="findings"></ul>
+      </div>
+    </div>
   </section>
 
   <!-- ── Results ── -->

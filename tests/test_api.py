@@ -924,3 +924,19 @@ def test_ddl_parse_error_has_no_ansi_escape_codes():
     assert len(warnings) == 1
     assert "\x1b" not in warnings[0]
     assert "\n" not in warnings[0]
+
+def test_compare_endpoint_detects_a_diff():
+    r = client.post("/api/compare", json={"sql_a": "SELECT a FROM t", "sql_b": "SELECT a, b FROM t", "dialect": "postgres"})
+    d = r.json()
+    assert d["ok"] and d["comparable"] and d["detailed"]
+    assert any("added" in diff["message"] for diff in d["differences"])
+
+def test_compare_endpoint_syntax_error_reports_reason():
+    r = client.post("/api/compare", json={"sql_a": "SELCT 1", "sql_b": "SELECT 1", "dialect": "postgres"})
+    d = r.json()
+    assert d["comparable"] is False
+    assert d["reason"] == "a_invalid"
+
+def test_compare_endpoint_rejects_oversized_input():
+    r = client.post("/api/compare", json={"sql_a": "SELECT 1", "sql_b": "x" * 200_001, "dialect": "postgres"})
+    assert r.status_code == 422

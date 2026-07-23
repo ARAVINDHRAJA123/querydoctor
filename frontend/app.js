@@ -21,8 +21,10 @@ fetch("api/dialects").then((r) => r.json()).then(({ dialects }) => {
   for (const d of dialects) {
     $("dialect").add(new Option(DIALECT_LABELS[d] || d, d));
     $("target").add(new Option(DIALECT_LABELS[d] || d, d));
+    $("compare-dialect").add(new Option(DIALECT_LABELS[d] || d, d));
   }
   $("dialect").value = "bigquery";
+  $("compare-dialect").value = "bigquery";
 });
 
 $("btn-sample").addEventListener("click", () => { $("sql").value = SAMPLE; $("sql").focus(); });
@@ -33,6 +35,113 @@ $("btn-schema-toggle").addEventListener("click", () => {
   $("btn-schema-toggle").setAttribute("aria-expanded", String(!showing));
   $("btn-schema-toggle").textContent = showing ? "+ Add schema (optional)" : "− Hide schema";
   if (!showing) $("schema-input").focus();
+});
+
+/* ── Diagnose / Compare mode toggle ── */
+function setMode(mode) {
+  const diagnosing = mode === "diagnose";
+  $("mode-diagnose").classList.toggle("active", diagnosing);
+  $("mode-diagnose").setAttribute("aria-selected", String(diagnosing));
+  $("mode-compare").classList.toggle("active", !diagnosing);
+  $("mode-compare").setAttribute("aria-selected", String(!diagnosing));
+  document.querySelector(".input-card").hidden = !diagnosing;
+  $("compare-card").hidden = diagnosing;
+  // Switching modes hides whichever results were showing — each mode owns
+  // its own error/result area, so nothing stale lingers on screen.
+  $("results").hidden = true;
+  $("compare-results").hidden = true;
+  setError("");
+  setCompareError("");
+}
+$("mode-diagnose").addEventListener("click", () => setMode("diagnose"));
+$("mode-compare").addEventListener("click", () => setMode("compare"));
+
+/* ── Compare ── */
+function setCompareError(msg) {
+  const el = $("compare-error");
+  el.hidden = !msg;
+  el.textContent = msg || "";
+  if (msg) { el.style.animation = "none"; void el.offsetWidth; el.style.animation = ""; }
+}
+
+async function compare() {
+  const sqlA = $("sql-a").value.trim();
+  const sqlB = $("sql-b").value.trim();
+  if (!sqlA || !sqlB) return setCompareError("Paste both queries first.");
+  setCompareError("");
+
+  const btn = $("btn-compare");
+  btn.disabled = true;
+  btn.lastChild.textContent = " Comparing… ";
+
+  try {
+    const res = await fetch("api/compare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sql_a: sqlA, sql_b: sqlB, dialect: $("compare-dialect").value }),
+    });
+    const d = await res.json();
+    if (!res.ok || d.ok === false) {
+      const detailMsg = Array.isArray(d.detail) && d.detail[0] && d.detail[0].msg;
+      return setCompareError(d.error || detailMsg || "Something went wrong. Please try again.");
+    }
+    renderCompare(d);
+  } catch {
+    setCompareError("Couldn't reach the doctor. Check your connection and try again.");
+  } finally {
+    btn.disabled = false;
+    btn.lastChild.textContent = " Compare ";
+  }
+}
+
+function renderCompare(d) {
+  $("compare-results").hidden = false;
+  const cards = ["compare-notcomparable-card", "compare-identical-card", "compare-fallback-card", "compare-diffs-card"];
+  cards.forEach((c) => ($(c).hidden = true));
+
+  if (!d.comparable) {
+    $("compare-notcomparable-card").hidden = false;
+    const bad = d.reason === "a_invalid" ? "a" : "b";
+    const badResult = bad === "a" ? d.a : d.b;
+    const se = badResult && badResult.syntax_error;
+    const label = bad === "a" ? "Query A" : "Query B";
+    $("compare-notcomparable-msg").textContent = se
+      ? `${label} has a syntax problem: ${se.hint || se.message}`
+      : `${label} isn't valid SQL — fix it before comparing.`;
+    return;
+  }
+
+  if (!d.detailed) {
+    if (d.identical) {
+      $("compare-identical-card").hidden = false;
+    } else {
+      $("compare-fallback-card").hidden = false;
+      $("compare-fallback-a").textContent = d.a.formatted || "";
+      $("compare-fallback-b").textContent = d.b.formatted || "";
+    }
+    return;
+  }
+
+  if (d.identical) {
+    $("compare-identical-card").hidden = false;
+    return;
+  }
+
+  $("compare-diffs-card").hidden = false;
+  $("compare-diffs").innerHTML = d.differences.map((diff, i) => `
+    <li style="animation-delay:${i * 90}ms">
+      <span class="sev low">${esc(diff.category)}</span>
+      <div><p>${esc(diff.message)}</p></div>
+    </li>`).join("");
+}
+
+$("btn-compare").addEventListener("click", compare);
+$("btn-compare-clear").addEventListener("click", () => {
+  $("sql-a").value = "";
+  $("sql-b").value = "";
+  $("compare-results").hidden = true;
+  setCompareError("");
+  $("sql-a").focus();
 });
 
 /* Accepts either a JSON schema dict ({"table": ["col", ...]}) or raw
