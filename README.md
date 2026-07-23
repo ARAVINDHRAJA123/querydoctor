@@ -8,7 +8,7 @@ without an LLM.**
 [![Live App](https://img.shields.io/badge/Live_App-querydoctor.run.app-0ea371?style=for-the-badge&logo=googlecloud&logoColor=white)](https://querydoctor-616665622891.asia-south1.run.app)
 [![Dialects](https://img.shields.io/badge/Dialects-10_supported-14b8a6?style=for-the-badge&logo=databricks&logoColor=white)](#-supported-dialects)
 [![No AI](https://img.shields.io/badge/Engine-sqlglot,_zero_LLM-06b6d4?style=for-the-badge&logo=python&logoColor=white)](#-why-no-ai)
-[![Tests](https://img.shields.io/badge/Tests-198_passing-22c55e?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-201_passing-22c55e?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 **🔗 Try it now: https://querydoctor-616665622891.asia-south1.run.app**
 
@@ -48,7 +48,7 @@ Fix the typo, run it again:
 | 💯 Health score | 0–100, severity-weighted — see [how it's scored](#-how-the-health-score-works) |
 | 🩹 SQL linting | 32 AST-based rules plus a token-level missing-comma detector — see the full list below |
 | ✨ Formatter | Paste ugly SQL, copy back a clean version |
-| 🚀 Optimizer | Deterministic sqlglot rewrites (constant folding, dead-predicate elimination); cosmetic-only diffs are suppressed |
+| 🚀 Optimizer | Deterministic sqlglot rewrites (constant folding, dead-predicate elimination); cosmetic-only diffs are suppressed, and rewrites that would silently change results are suppressed too — see [below](#-a-note-on-the-optimizer-suggestion) |
 | 🔁 Dialect translation | All 10×9 direction pairs verified (e.g. MySQL `IFNULL`/`GROUP_CONCAT` → BigQuery `COALESCE`/`STRING_AGG`) |
 | 🕐 Check-up history | Local-only drawer, stored in your browser |
 | 🌗 Dark / light mode | Circular-wipe transition |
@@ -99,6 +99,24 @@ on severity; a syntax error alone caps the check at "invalid" (no score).
 Findings are deduplicated by rule (each rule fires once per check), and the
 score floors at 0.
 
+## A note on the optimizer suggestion
+
+The "Optimizer suggestion" card runs sqlglot's own rewrite engine, which is
+usually safe (constant folding, dead-predicate elimination) — but for
+certain correlated subqueries, sqlglot can produce a rewrite that silently
+changes the query's results, not just its shape. Specifically: a subquery
+that combines an equality correlation (e.g. matching on `department_id`)
+with a *separate* comparison correlation (e.g. `salary > outer.salary`) can
+get decorrelated incorrectly — confirmed two distinct ways: an aggregate's
+comparison getting dropped and relocated into an unrelated outer filter, and
+an `IN`/`NOT IN` subquery's equality-target and comparison getting
+decomposed into independent checks that no longer require the same
+underlying row to satisfy both (verified with concrete sample data, not
+just hypothetically). `EXISTS`/`NOT EXISTS` don't have this problem and are
+still optimized normally. QueryDoctor detects this shape structurally and
+skips the optimizer for it entirely, rather than risk showing a "cleaner"
+query that quietly returns different rows.
+
 ## Limitations
 
 Being upfront about what this doesn't do:
@@ -144,7 +162,7 @@ business logic," which is exactly the line an LLM-based tool would blur.
 
 ## 📊 By the numbers
 
-10 SQL dialects · 32 lint checks · 90 verified translation pairs · 198 tests passing
+10 SQL dialects · 32 lint checks · 90 verified translation pairs · 201 tests passing
 
 ## 🗣 Supported dialects
 

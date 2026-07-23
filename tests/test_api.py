@@ -555,3 +555,41 @@ def test_optimizer_allows_sound_in_subquery_with_filter():
     )
     d = check(sql, "postgres").json()
     assert d["optimized"] is not None
+
+def test_optimizer_suppresses_in_subquery_equality_plus_comparison():
+    # A THIRD distinct unsound rewrite, worse than the aggregate one: an
+    # IN subquery combining an equality correlation (dept) with a separate
+    # comparison correlation (salary) gets decomposed into two independent
+    # array checks — verified with concrete sample data that this wrongly
+    # includes rows that never satisfy both conditions on the same
+    # underlying row (e.g. every employee ends up "IN" their own
+    # never-matching set, because the id-array is no longer filtered by
+    # the salary condition once decorrelated).
+    sql = (
+        "SELECT e.employee_id FROM employees e WHERE e.employee_id IN "
+        "(SELECT e3.employee_id FROM employees e3 WHERE e3.department_id = e.department_id "
+        "AND e3.salary > e.salary)"
+    )
+    d = check(sql, "postgres").json()
+    assert d["optimized"] is None
+
+def test_optimizer_suppresses_not_in_subquery_equality_plus_comparison():
+    sql = (
+        "SELECT e.employee_id FROM employees e WHERE e.employee_id NOT IN "
+        "(SELECT e3.employee_id FROM employees e3 WHERE e3.department_id = e.department_id "
+        "AND e3.salary > e.salary)"
+    )
+    d = check(sql, "postgres").json()
+    assert d["optimized"] is None
+
+def test_optimizer_allows_pure_multi_equality_correlation():
+    # Multiple correlated conditions are fine as long as they're all plain
+    # equalities (a real multi-column join key) — only a MIX of equality
+    # and non-equality correlation is the unsound shape.
+    sql = (
+        "SELECT e.employee_id, (SELECT COUNT(*) FROM employees e3 "
+        "WHERE e3.department_id = e.department_id AND e3.manager_id = e.manager_id) AS r "
+        "FROM employees e"
+    )
+    d = check(sql, "postgres").json()
+    assert d["optimized"] is not None

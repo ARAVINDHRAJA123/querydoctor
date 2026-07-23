@@ -741,6 +741,54 @@ STATEMENT_STARTERS = [
 ]
 
 
+def _has_unsound_decorrelation_risk(tree) -> bool:
+    """sqlglot's optimizer can decorrelate a subquery that combines an
+    equality correlation (e.g. `e3.department_id = e.department_id`) with a
+    second, independent correlated condition (e.g. `e3.salary > e.salary`)
+    into a rewrite that checks each condition against the whole group
+    separately instead of requiring one single row to satisfy both —
+    confirmed wrong two different ways: an aggregate whose comparison
+    silently gets dropped into a bogus outer MAX() filter, and an IN/NOT IN
+    subquery where the equality-target and the comparison get decomposed
+    into independent EXISTS-shaped checks, which can wrongly include rows
+    that never actually satisfy both conditions on the same underlying row
+    (verified with a concrete data example, not just structurally). EXISTS/
+    NOT EXISTS don't have this problem — they only ever need one row to
+    satisfy the whole conjunction, and confirmed correct by direct testing —
+    so this check is deliberately scoped to skip subqueries used that way.
+    Given how easy real correlated queries hit this shape (dept-relative
+    rankings, running totals, "more than N in my group" checks), suppressing
+    the optimizer suggestion outright for it is safer than trying to predict
+    exactly when sqlglot's rewrite will or won't be sound."""
+    for sub_sel in tree.find_all(exp.Select):
+        if sub_sel.find_ancestor(exp.Exists):
+            continue
+        where = sub_sel.args.get("where")
+        if not where:
+            continue
+        own_aliases = {t.alias_or_name for t in (sub_sel.args.get("from_") or sub_sel.args.get("from")).find_all(exp.Table)} if (sub_sel.args.get("from_") or sub_sel.args.get("from")) else set()
+        conditions = list(where.this.flatten()) if isinstance(where.this, exp.And) else [where.this]
+        has_correlated_equality = False
+        has_correlated_non_equality = False
+        for cond in conditions:
+            cols = list(cond.find_all(exp.Column))
+            if not any(c.table and c.table not in own_aliases for c in cols):
+                continue
+            if isinstance(cond, exp.EQ):
+                has_correlated_equality = True
+            else:
+                has_correlated_non_equality = True
+        # Multiple pure-equality correlations (a real multi-column join key)
+        # are provably sound — verified via direct testing. The risk is
+        # specifically a MIX of an equality correlation (used as the
+        # decorrelation's GROUP BY / join key) with a separate non-equality
+        # correlated condition (which the optimizer can't fold into that
+        # same key correctly).
+        if has_correlated_equality and has_correlated_non_equality:
+            return True
+    return False
+
+
 def _clean_parse_message(msg: str) -> str:
     """sqlglot errors embed raw token reprs like
     '<Token token_type: TokenType.WHERE, text: WHERE, ...>' — swap them for
@@ -864,6 +912,8 @@ def check_sql(sql: str, dialect: str = "bigquery", target_dialect: str | None = 
     # raise — degrade gracefully: full optimize → simplify only → skip.
     optimized = None
     try:
+        if any(_has_unsound_decorrelation_risk(t) for t in trees):
+            raise ValueError("skip optimization: unsound decorrelation risk")
         opt_trees = []
         for t in trees:
             try:
