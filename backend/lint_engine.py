@@ -765,6 +765,43 @@ def detect_missing_comma(sql: str) -> list[dict]:
     }]
 
 
+_NOQA_RE = re.compile(r"^\s*noqa\s*(?::\s*(.*))?\s*$", re.IGNORECASE)
+
+
+def _collect_noqa_directives(trees) -> tuple[bool, set]:
+    """Query-level (not line-level) suppression via a real `-- noqa` or
+    `-- noqa: Title One, Title Two` SQL comment, matching sqlfluff's own
+    naming convention rather than inventing a QueryDoctor-specific keyword.
+    Deliberately scoped to whole-query suppression, not per-line: most of
+    the 34 rules don't carry source position info (only the syntax-error
+    path and detect_missing_comma do), so pretending to support per-line
+    noqa would silently suppress the wrong thing on any rule without a
+    line number. Uses sqlglot's own comment attachment (tree.walk() +
+    node.comments) rather than a raw substring search on the SQL text —
+    confirmed that guarantees a real comment token, never text that
+    happens to appear inside a string literal. Case-insensitive; requires
+    "noqa" to start the comment (after only whitespace) so a comment that
+    merely mentions the word mid-sentence is never mistaken for a
+    directive. A malformed/misspelled rule title inside the list is
+    silently a no-op (nothing matches it) rather than an error — the SQL
+    itself is still valid, this is just an inert comment in that case."""
+    suppress_all = False
+    titles = set()
+    for tree in trees:
+        for node in tree.walk():
+            n = node[0] if isinstance(node, tuple) else node
+            for c in getattr(n, "comments", None) or []:
+                m = _NOQA_RE.match(c)
+                if not m:
+                    continue
+                rule_list = m.group(1)
+                if not rule_list or not rule_list.strip():
+                    suppress_all = True
+                else:
+                    titles.update(p.strip().lower() for p in rule_list.split(",") if p.strip())
+    return suppress_all, titles
+
+
 def _cte_names(tree) -> set:
     """Every name introduced by a WITH clause anywhere in the tree — these
     aren't real tables, so schema-aware checks must never flag a reference
@@ -777,6 +814,59 @@ def _cte_names(tree) -> set:
                 if cte.alias_or_name:
                     names.add(cte.alias_or_name.lower())
     return names
+
+
+MAX_DDL_CHARS = 200_000
+
+
+def parse_ddl_to_schema(ddl: str, dialect: str = "bigquery") -> tuple[dict, list[str]]:
+    """Turn one or more CREATE TABLE statements into the {table: [columns]}
+    dict the schema-aware rules expect, so a user can paste real DDL
+    instead of hand-typing JSON. Returns (schema, warnings) — never raises.
+    Each statement is handled independently: sqlglot.parse() doesn't abort
+    on one malformed statement in a multi-statement blob, it falls back to
+    a generic Command node for whatever it can't parse and keeps going, so
+    a typo in table #2 of 5 doesn't lose tables #1/#3/#4/#5. Anything that
+    isn't a CREATE TABLE (a Command fallback, CREATE VIEW, a stray SELECT)
+    is skipped and counted, never silently guessed at — a wrong guess here
+    would poison the unknown-table/unknown-column checks with a schema
+    that looks complete but isn't."""
+    if not ddl or not ddl.strip():
+        return {}, []
+    if len(ddl) > MAX_DDL_CHARS:
+        return {}, [f"DDL input too large ({len(ddl)} chars, max {MAX_DDL_CHARS}) — nothing was parsed."]
+    try:
+        statements = sqlglot.parse(ddl, read=dialect)
+    except Exception as e:
+        return {}, [f"Couldn't parse the DDL at all: {e}"]
+    schema: dict = {}
+    skipped = 0
+    for stmt in statements:
+        if stmt is None:
+            continue
+        if not (isinstance(stmt, exp.Create) and (stmt.kind or "").upper() == "TABLE"):
+            skipped += 1
+            continue
+        table_expr = stmt.this
+        table_node = table_expr.this if isinstance(table_expr, exp.Schema) else table_expr
+        if not isinstance(table_node, exp.Table) or not table_node.name:
+            skipped += 1
+            continue
+        col_defs = table_expr.expressions if isinstance(table_expr, exp.Schema) else []
+        columns = [c.this.this for c in col_defs if isinstance(c, exp.ColumnDef) and c.this]
+        if not columns:
+            skipped += 1
+            continue
+        schema[table_node.name] = columns
+    warnings = []
+    if skipped:
+        warnings.append(
+            f"{skipped} statement(s) in the DDL weren't recognized as a plain CREATE TABLE with columns "
+            "(unsupported syntax, a view, or a parse error) and were skipped — their tables won't be "
+            "checked against, so references to them won't trigger Unknown table/column false positives, "
+            "but real typos in them also won't be caught."
+        )
+    return schema, warnings
 
 
 def _rule_unknown_table(tree, schema: dict):
@@ -1163,6 +1253,82 @@ def _syntax_error_hint(sql: str, line: int | None, col: int | None) -> str | Non
     return None
 
 
+# ── Auto-fix ─────────────────────────────────────────────────────────────
+# Deliberately NOT a general-purpose fixer for all 34 rules. Each entry
+# here is a transformation with ZERO semantic ambiguity — verified
+# individually, not just "looks reasonable." Rules that would require
+# GUESSING (where a missing comma goes, what a real join condition should
+# be, what column name was actually meant) are excluded on purpose: a wrong
+# auto-fix is worse than no auto-fix, especially for a tool whose entire
+# value proposition is "trustworthy." Each fixer mutates the tree it's
+# given in place and returns True if it changed anything.
+
+def _fix_null_equality(tree) -> bool:
+    changed = False
+    for node in list(tree.find_all((exp.EQ, exp.NEQ))):
+        left_null = isinstance(node.expression, exp.Null)
+        right_null = isinstance(node.this, exp.Null)
+        if not (left_null or right_null):
+            continue
+        other = node.this if left_null else node.expression
+        is_node = exp.Is(this=other.copy(), expression=exp.Null())
+        node.replace(is_node if isinstance(node, exp.EQ) else exp.Not(this=is_node))
+        changed = True
+    return changed
+
+
+def _fix_redundant_distinct(tree) -> bool:
+    changed = False
+    for sel in tree.find_all(exp.Select):
+        if sel.args.get("distinct") and sel.args.get("group"):
+            sel.set("distinct", None)
+            changed = True
+    return changed
+
+
+def _fix_case_no_else(tree) -> bool:
+    changed = False
+    for case in tree.find_all(exp.Case):
+        if not case.args.get("default"):
+            case.set("default", exp.Null())
+            changed = True
+    return changed
+
+
+def _fix_leaked_alias_qualifier(tree) -> bool:
+    all_aliases = {t.alias_or_name.lower() for t in tree.find_all(exp.Table) if t.alias_or_name}
+    changed = False
+    for col in tree.find_all(exp.Column):
+        db = col.args.get("db")
+        if db and db.this and db.this.lower() in all_aliases:
+            col.set("db", None)
+            changed = True
+    return changed
+
+
+AUTO_FIXERS = [_fix_null_equality, _fix_redundant_distinct, _fix_case_no_else, _fix_leaked_alias_qualifier]
+
+
+def apply_auto_fixes(tree):
+    """Apply every safe fixer to a COPY of tree, then re-run the actual
+    RULES against the fixed copy and diff finding titles against the
+    original — self-verifying rather than trusting a hardcoded title-to-
+    fixer mapping, so "reported as fixed" always means "confirmed gone
+    from findings on this exact tree," not just "we ran a fixer function
+    and hoped." Returns (fixed_tree_or_None, resolved_titles)."""
+    orig_titles = {title for rule in RULES for sev, title, msg in rule(tree)}
+    fixed = tree.copy()
+    changed = False
+    for fixer in AUTO_FIXERS:
+        if fixer(fixed):
+            changed = True
+    if not changed:
+        return None, set()
+    new_titles = {title for rule in RULES for sev, title, msg in rule(fixed)}
+    resolved = orig_titles - new_titles
+    return fixed, resolved
+
+
 def check_sql(sql: str, dialect: str = "bigquery", target_dialect: str | None = None, dbt_mode: bool = False,
               schema: dict | None = None) -> dict:
     """Run the full QueryDoctor diagnosis on one blob of SQL (may contain
@@ -1226,6 +1392,16 @@ def check_sql(sql: str, dialect: str = "bigquery", target_dialect: str | None = 
         # (see _left_join_nullify_finding_is_false_positive's docstring).
         if any(_left_join_nullify_finding_is_false_positive(t) for t in trees):
             findings = [f for f in findings if f["title"] != "WHERE clause nullifies an outer JOIN"]
+
+    suppress_all, noqa_titles = _collect_noqa_directives(trees)
+    suppressed_by_noqa = []
+    if suppress_all:
+        suppressed_by_noqa = [f["title"] for f in findings]
+        findings = []
+    elif noqa_titles:
+        suppressed_by_noqa = [f["title"] for f in findings if f["title"].lower() in noqa_titles]
+        findings = [f for f in findings if f["title"].lower() not in noqa_titles]
+
     findings.sort(key=lambda f: ["high", "medium", "low"].index(f["severity"]))
 
     score = max(0, 100 - sum(SEV_WEIGHT[f["severity"]] for f in findings))
@@ -1302,6 +1478,32 @@ def check_sql(sql: str, dialect: str = "bigquery", target_dialect: str | None = 
         except Exception as e:
             translated = f"-- Couldn't translate: {str(e).splitlines()[0]}"
 
+    # 6. Auto-fix — only for the small set of provably-safe transforms in
+    # AUTO_FIXERS. Never offered for a finding the user already noqa'd
+    # (that's an explicit "I know, leave it" — auto-fixing it anyway would
+    # contradict their own directive).
+    auto_fixed_sql = None
+    auto_fixed_titles = set()
+    try:
+        fixed_trees = []
+        any_changed = False
+        for t in trees:
+            fixed, resolved = apply_auto_fixes(t)
+            if fixed is not None:
+                any_changed = True
+                fixed_trees.append(fixed)
+                auto_fixed_titles.update(resolved)
+            else:
+                fixed_trees.append(t)
+        suppressed_lower = {s.lower() for s in suppressed_by_noqa}
+        auto_fixed_titles = {t for t in auto_fixed_titles if t.lower() not in suppressed_lower}
+        if any_changed and auto_fixed_titles:
+            auto_fixed_sql = ";\n\n".join(ft.sql(dialect=dialect, pretty=True) for ft in fixed_trees)
+            auto_fixed_sql += ";" if len(fixed_trees) > 1 else ""
+    except Exception:
+        auto_fixed_sql = None
+        auto_fixed_titles = set()
+
     return {
         "ok": True,
         "valid": True,
@@ -1311,4 +1513,7 @@ def check_sql(sql: str, dialect: str = "bigquery", target_dialect: str | None = 
         "optimized": optimized,
         "translated": translated,
         "statement_count": len(trees),
+        "suppressed_by_noqa": suppressed_by_noqa,
+        "auto_fixed_sql": auto_fixed_sql,
+        "auto_fixed_titles": sorted(auto_fixed_titles),
     }

@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import billing
-from lint_engine import DIALECTS, SEV_WEIGHT, check_sql
+from lint_engine import DIALECTS, SEV_WEIGHT, check_sql, parse_ddl_to_schema
 
 SEV_ORDER = ["low", "medium", "high"]  # ascending — index used for threshold comparison
 
@@ -69,6 +69,7 @@ class CheckRequest(BaseModel):
     dbt_mode: bool = False
     fail_on_severity: str | None = None  # "low"/"medium"/"high" — paid-tier only
     db_schema: dict[str, list[str]] | None = None  # optional {table: [columns]} — unlocks unknown table/column checks
+    ddl: str | None = Field(default=None, max_length=200_000)  # optional CREATE TABLE statements, auto-parsed into a schema
 
 
 @app.post("/api/check")
@@ -84,11 +85,20 @@ async def check(req: CheckRequest, request: Request):
         if _rate_limited(ip):
             return JSONResponse({"ok": False, "error": "Too many checks right now — take a short break and try again."}, status_code=429)
 
-    schema = req.db_schema
+    schema_warnings = []
+    schema = None
+    if req.ddl:
+        schema, schema_warnings = parse_ddl_to_schema(req.ddl, dialect=req.dialect)
+    if req.db_schema:
+        # Explicit db_schema wins per-table over anything derived from ddl —
+        # it's the more deliberate, hand-curated source when both are given.
+        schema = {**(schema or {}), **req.db_schema}
     if schema and (len(schema) > 200 or sum(len(cols) for cols in schema.values()) > 5000):
         return JSONResponse({"ok": False, "error": "Schema too large — max 200 tables / 5000 total columns."}, status_code=422)
 
     result = check_sql(req.sql, dialect=req.dialect, target_dialect=req.target_dialect, dbt_mode=req.dbt_mode, schema=schema)
+    if schema_warnings:
+        result["schema_warnings"] = schema_warnings
     if not result.get("ok"):
         return JSONResponse(result, status_code=422)
 

@@ -8,7 +8,7 @@ without an LLM.**
 [![Live App](https://img.shields.io/badge/Live_App-querydoctor.run.app-0ea371?style=for-the-badge&logo=googlecloud&logoColor=white)](https://querydoctor-616665622891.asia-south1.run.app)
 [![Dialects](https://img.shields.io/badge/Dialects-10_supported-14b8a6?style=for-the-badge&logo=databricks&logoColor=white)](#-supported-dialects)
 [![No AI](https://img.shields.io/badge/Engine-sqlglot,_zero_LLM-06b6d4?style=for-the-badge&logo=python&logoColor=white)](#-why-no-ai)
-[![Tests](https://img.shields.io/badge/Tests-220_passing-22c55e?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-241_passing-22c55e?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 **🔗 Try it now: https://querydoctor-616665622891.asia-south1.run.app**
 
@@ -101,6 +101,48 @@ renamed/dropped table or column name. Entirely optional and off by
 default; no schema means these two checks simply don't run. Capped at
 200 tables / 5000 total columns per request.
 
+Don't want to hand-write the JSON? Pass a `ddl` field instead — one or
+more real `CREATE TABLE` statements, parsed automatically into the same
+schema shape. Statements that don't parse (a typo, a view, unsupported
+syntax) are skipped individually rather than failing the whole thing —
+you'll see which ones in `schema_warnings`, so it's never silently
+guessing at a schema it couldn't actually read. Pass both `ddl` and
+`db_schema` and the explicit `db_schema` wins per-table.
+
+### Suppressing a finding: `-- noqa`
+
+A real SQL comment — `-- noqa` (suppresses everything) or
+`-- noqa: Some Finding Title, Another Title` (suppresses just those) —
+removes matching findings from the result and recomputes the score.
+This is query-level, not line-level: most rules don't carry a source
+line number (only the syntax-error path and the missing-comma detector
+do), so a per-line `noqa` would risk suppressing the wrong thing on any
+rule without one — safer to be explicit about the scope than to fake
+precision. Matches sqlfluff's own convention rather than inventing a
+QueryDoctor-specific keyword. Only ever removes lint findings, never a
+syntax error — a query that doesn't parse still doesn't parse. Suppressed
+titles are echoed back in `suppressed_by_noqa` so nothing disappears
+silently.
+
+### Auto-fix
+
+For a small, deliberately narrow set of findings with **zero semantic
+ambiguity** — `x = NULL`/`!= NULL` → `IS [NOT] NULL`, a redundant
+`DISTINCT` alongside `GROUP BY`, a `CASE` without `ELSE` (adds an
+explicit `ELSE NULL`, SQL's existing implicit default — a no-op
+clarification, not a behavior change), and a leaked table-alias
+qualifier — the response includes `auto_fixed_sql` and
+`auto_fixed_titles`. Every fix is self-verifying: after applying it,
+QueryDoctor re-runs the actual lint rules against the result and only
+reports a title as fixed if that finding is *confirmed* gone, rather
+than trusting that a transformation "should" have worked. Deliberately
+does **not** attempt this for findings that would require guessing
+(a missing comma's location, what a real `JOIN` condition should be,
+what column name was actually meant) — a wrong auto-fix is worse than
+no auto-fix. Never offered for a finding you've already suppressed with
+`noqa` — that's an explicit "I know, leave it," and auto-fixing it
+anyway would go against your own directive.
+
 ## 💯 How the health score works
 
 Every check starts at 100. Each lint finding subtracts a fixed amount based
@@ -189,7 +231,7 @@ business logic," which is exactly the line an LLM-based tool would blur.
 
 ## 📊 By the numbers
 
-10 SQL dialects · 34 lint checks · 90 verified translation pairs · 220 tests passing
+10 SQL dialects · 34 lint checks · 90 verified translation pairs · 241 tests passing
 
 ## 🗣 Supported dialects
 

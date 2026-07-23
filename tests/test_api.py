@@ -757,3 +757,133 @@ def test_leaked_alias_qualifier_consolidates_multiple_distinct_leaks():
     leaked = [f for f in d["findings"] if f["title"] == "Table alias leaked into a column qualifier"]
     assert len(leaked) == 1
     assert "e.e2.x" in leaked[0]["message"] and "e.e3.y" in leaked[0]["message"]
+
+def test_noqa_blanket_suppresses_everything():
+    d = check("SELECT * FROM t -- noqa", "postgres").json()
+    assert d["findings"] == []
+    assert "SELECT * used" in d["suppressed_by_noqa"]
+
+def test_noqa_specific_title_suppresses_only_that_finding():
+    d = check("SELECT * FROM t WHERE x = NULL -- noqa: SELECT * used", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "SELECT * used" not in titles
+    assert any("never matches" in t for t in titles)
+
+def test_noqa_case_insensitive_title_match():
+    d = check("SELECT * FROM t -- noqa: select * used", "postgres").json()
+    assert d["findings"] == []
+
+def test_noqa_misspelled_title_is_a_no_op():
+    d = check("SELECT * FROM t -- noqa: not a real rule name", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "SELECT * used" in titles
+
+def test_noqa_inside_string_literal_is_not_a_directive():
+    d = check("SELECT '-- noqa' AS x, * FROM t", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "SELECT * used" in titles
+
+def test_noqa_does_not_suppress_syntax_errors():
+    d = check("SELCT * FROM t -- noqa", "postgres").json()
+    assert d["ok"] and not d["valid"]
+
+def test_no_noqa_comment_leaves_findings_and_suppressed_list_untouched():
+    d = check("SELECT * FROM t", "postgres").json()
+    assert d["suppressed_by_noqa"] == []
+    assert any(f["title"] == "SELECT * used" for f in d["findings"])
+
+def test_ddl_auto_derives_schema_and_catches_unknown_column():
+    r = client.post("/api/check", json={
+        "sql": "SELECT e.employee_id, e.salery FROM employees e", "dialect": "postgres",
+        "ddl": "CREATE TABLE employees (employee_id INT, salary DECIMAL(10,2));",
+    })
+    d = r.json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Unknown column" in titles
+
+def test_ddl_and_explicit_schema_merge_with_explicit_winning():
+    ddl = "CREATE TABLE employees (employee_id INT, salary DECIMAL(10,2));"
+    r = client.post("/api/check", json={
+        "sql": "SELECT e.bonus FROM employees e", "dialect": "postgres", "ddl": ddl,
+        "db_schema": {"employees": ["employee_id", "salary", "bonus"]},
+    })
+    d = r.json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Unknown column" not in titles
+
+def test_malformed_ddl_statement_reported_as_warning_not_crash():
+    r = client.post("/api/check", json={"sql": "SELECT 1", "dialect": "postgres", "ddl": "CREATE TABLE BROKEN (((;"})
+    assert r.status_code == 200
+    d = r.json()
+    assert d.get("schema_warnings")
+
+def test_ddl_with_one_bad_statement_still_derives_the_good_ones():
+    ddl = (
+        "CREATE TABLE employees (employee_id INT);"
+        "CREATE TABLE BROKEN SYNTAX HERE (((;"
+        "CREATE TABLE departments (id INT);"
+    )
+    r = client.post("/api/check", json={
+        "sql": "SELECT d.bogus FROM departments d", "dialect": "postgres", "ddl": ddl,
+    })
+    d = r.json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Unknown column" in titles  # departments table was still captured despite the broken middle statement
+
+def test_no_ddl_no_schema_means_no_schema_warnings_key():
+    r = client.post("/api/check", json={"sql": "SELECT 1"})
+    d = r.json()
+    assert "schema_warnings" not in d
+
+def test_auto_fix_null_equality():
+    r = check("SELECT * FROM t WHERE x = NULL", "postgres").json()
+    assert r["auto_fixed_titles"] == ["`= NULL` never matches"]
+    assert "IS NULL" in r["auto_fixed_sql"] and "= NULL" not in r["auto_fixed_sql"]
+
+def test_auto_fix_not_null_equality():
+    r = check("SELECT * FROM t WHERE x != NULL", "postgres").json()
+    assert r["auto_fixed_titles"] == ["`!= NULL` never matches"]
+    assert "IS NULL" in r["auto_fixed_sql"]
+
+def test_auto_fix_redundant_distinct():
+    r = check("SELECT DISTINCT a, b FROM t GROUP BY a, b", "postgres").json()
+    assert "Redundant DISTINCT with GROUP BY" in r["auto_fixed_titles"]
+    assert "DISTINCT" not in r["auto_fixed_sql"]
+
+def test_auto_fix_case_no_else():
+    r = check("SELECT CASE WHEN x = 1 THEN 'a' END FROM t", "postgres").json()
+    assert "CASE without ELSE" in r["auto_fixed_titles"]
+    assert "ELSE" in r["auto_fixed_sql"]
+
+def test_auto_fix_leaked_alias_qualifier():
+    r = check("SELECT e.id, (SELECT AVG(e.e2.x) FROM t2 e2) AS r FROM emp e", "bigquery").json()
+    assert "Table alias leaked into a column qualifier" in r["auto_fixed_titles"]
+    assert "e.e2.x" not in r["auto_fixed_sql"]
+
+def test_auto_fix_none_offered_for_clean_query():
+    r = check("SELECT 1", "postgres").json()
+    assert r["auto_fixed_sql"] is None
+    assert r["auto_fixed_titles"] == []
+
+def test_auto_fix_not_offered_for_noqa_suppressed_finding():
+    r = check("SELECT * FROM t WHERE x = NULL -- noqa", "postgres").json()
+    assert r["auto_fixed_sql"] is None
+    assert r["auto_fixed_titles"] == []
+
+def test_auto_fix_result_reparses_cleanly_and_finding_is_gone():
+    r = check("SELECT * FROM t WHERE x = NULL", "postgres").json()
+    r2 = check(r["auto_fixed_sql"], "postgres").json()
+    assert r2["valid"]
+    assert "`= NULL` never matches" not in {f["title"] for f in r2["findings"]}
+
+def test_auto_fix_combines_multiple_independent_fixes_in_one_query():
+    sql = (
+        "SELECT DISTINCT e.id, CASE WHEN e.status = 1 THEN 'active' END AS s "
+        "FROM employees e WHERE e.manager_id = NULL GROUP BY e.id, e.status"
+    )
+    r = check(sql, "bigquery").json()
+    assert set(r["auto_fixed_titles"]) == {
+        "Redundant DISTINCT with GROUP BY", "CASE without ELSE", "`= NULL` never matches"
+    }
+    r2 = check(r["auto_fixed_sql"], "bigquery").json()
+    assert r2["valid"]
