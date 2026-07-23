@@ -744,3 +744,16 @@ def test_scalar_subquery_aggregate_with_optimizer_style_alias_is_clean():
     ).json()
     titles = {f["title"] for f in d["findings"]}
     assert "Scalar subquery without LIMIT 1" not in titles
+
+def test_leaked_alias_qualifier_consolidates_multiple_distinct_leaks():
+    # Real bug found during a broader audit: the rule's own dedup keyed on
+    # the leaked alias name alone, so a second distinct leaked reference
+    # under the SAME leaked alias (e.g. e.e2.x and e.e3.y both leaking "e")
+    # was silently dropped even before reaching check_sql's outer dedup.
+    d = check(
+        "SELECT e.id, (SELECT AVG(e.e2.x) FROM t2 e2) AS r1, (SELECT AVG(e.e3.y) FROM t3 e3) AS r2 FROM emp e",
+        "bigquery"
+    ).json()
+    leaked = [f for f in d["findings"] if f["title"] == "Table alias leaked into a column qualifier"]
+    assert len(leaked) == 1
+    assert "e.e2.x" in leaked[0]["message"] and "e.e3.y" in leaked[0]["message"]

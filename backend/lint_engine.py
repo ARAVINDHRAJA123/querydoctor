@@ -563,20 +563,25 @@ def _rule_leaked_alias_qualifier(tree):
     incorrectly re-qualified an already-correct `e2.salary` into
     `e.e2.salary`. It parses as valid dataset.table.column syntax, but
     running it for real fails with something like "Dataset e not found",
-    since the alias was never a real dataset."""
+    since the alias was never a real dataset. Yields a single consolidated
+    finding listing every distinct occurrence (like detect_missing_comma/
+    _rule_unknown_table) rather than one per column — check_sql's finding
+    dedup keys on title alone, so multiple separate yields under the same
+    title would otherwise silently collapse to just the first one found."""
     all_aliases = {t.alias_or_name.lower() for t in tree.find_all(exp.Table) if t.alias_or_name}
-    seen = set()
+    leaked = []
     for c in tree.find_all(exp.Column):
         db = c.args.get("db")
         db_name = db.this if db else None
-        if db_name and db_name.lower() in all_aliases and db_name.lower() not in seen:
-            seen.add(db_name.lower())
-            yield ("high", "Table alias leaked into a column qualifier",
-                   f"`{c.sql()}` — the leading part (`{db_name}`) is a table alias used elsewhere in this "
-                   "query, not a real dataset/project name. This parses as valid `dataset.table.column` "
-                   "syntax, but running it for real will fail (e.g. \"Dataset not found\") since that alias "
-                   f"was never an actual dataset. Likely meant `{c.table}.{c.this.this if hasattr(c.this, 'this') else c.this}` "
-                   "— probably left over from a copy-pasted or auto-generated rewrite.")
+        if db_name and db_name.lower() in all_aliases and c.sql() not in leaked:
+            leaked.append(c.sql())
+    if leaked:
+        refs = ", ".join(f"`{r}`" for r in leaked)
+        yield ("high", "Table alias leaked into a column qualifier",
+               f"{refs} — the leading part is a table alias used elsewhere in this query, not a real "
+               "dataset/project name. This parses as valid `dataset.table.column` syntax, but running it "
+               "for real will fail (e.g. \"Dataset not found\") since that alias was never an actual "
+               "dataset — probably left over from a copy-pasted or auto-generated rewrite.")
 
 
 def _rule_mixed_agg_no_group_by(tree):
