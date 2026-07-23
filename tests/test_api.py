@@ -887,3 +887,28 @@ def test_auto_fix_combines_multiple_independent_fixes_in_one_query():
     }
     r2 = check(r["auto_fixed_sql"], "bigquery").json()
     assert r2["valid"]
+
+def test_cli_vendored_lint_engine_is_in_sync():
+    # cli/lint_engine.py is a synced copy (see its own top comment and
+    # cli/sync_vendor.sh) because a real pip install can't import across
+    # into ../backend — confirmed by testing an actual install, which
+    # crashed before this vendoring was added. This test is the guard
+    # against someone editing backend/lint_engine.py and forgetting to
+    # re-run sync_vendor.sh, which would otherwise drift silently.
+    import os
+    here = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(here, "..", "backend", "lint_engine.py")) as f:
+        real = f.read()
+    with open(os.path.join(here, "..", "cli", "lint_engine.py")) as f:
+        vendored = f.read()
+    # Strip the vendored copy's leading docstring note (everything up to
+    # and including the first blank line after its closing triple-quote)
+    # before comparing — that note doesn't exist in the real file.
+    marker = '"""\n\n'
+    idx = vendored.find(marker)
+    assert idx != -1, "vendored copy is missing its expected header note"
+    vendored_body = vendored[idx + len(marker):]
+    assert vendored_body == real, (
+        "cli/lint_engine.py is out of sync with backend/lint_engine.py — "
+        "run cli/sync_vendor.sh and commit the result"
+    )

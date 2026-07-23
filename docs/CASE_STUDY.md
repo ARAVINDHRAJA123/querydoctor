@@ -37,7 +37,7 @@ an animated ring. People who can't parse a lint list understand "34/100, needs a
    limit inside tests only.
 
 ## Verification
-241-case pytest suite in CI: validity battery including rare per-dialect features
+253-case pytest suite in CI: validity battery including rare per-dialect features
 (QUALIFY, LATERAL FLATTEN, CONNECT BY, recursive CTEs, MERGE, window frames), **all 90
 dialect-translation pairs**, lint rules, typo hints, and error paths.
 

@@ -1,0 +1,17 @@
+[project]
+name = "querydoctor-cli"
+version = "0.1.0"
+description = "Local batch SQL linting with QueryDoctor's rule engine — no server, no network call."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["sqlglot"]
+
+[project.scripts]
+querydoctor = "querydoctor_cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["querydoctor_cli", "lint_engine"]
