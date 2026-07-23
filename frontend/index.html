@@ -79,10 +79,22 @@
         </select>
       </label>
       <button id="btn-sample" class="btn-mini" type="button">Try a sample</button>
+      <button id="btn-schema-toggle" class="btn-mini" type="button" aria-expanded="false" aria-controls="schema-section">+ Add schema (optional)</button>
+    </div>
+
+    <div id="schema-section" class="schema-section" hidden>
+      <label class="schema-label" for="schema-input">
+        Paste <code>CREATE TABLE</code> statements, or a JSON schema like
+        <code>{"orders": ["id", "amount"]}</code> — unlocks the Unknown table/column checks
+      </label>
+      <textarea id="schema-input" class="schema-textarea" spellcheck="false" autocapitalize="off" autocomplete="off"
+        placeholder="CREATE TABLE orders (id INT, amount DECIMAL, customer_id INT);"></textarea>
+      <p id="schema-warning" class="schema-warning muted" hidden></p>
     </div>
 
     <textarea id="sql" spellcheck="false" autocapitalize="off" autocomplete="off"
       placeholder="SELECT customer, SUM(amount)&#10;FROM orders&#10;GROUP BY customer&#10;…paste your SQL here"></textarea>
+    <p class="noqa-hint muted">Tip: add a <code>-- noqa</code> or <code>-- noqa: Finding Title</code> comment in your SQL to suppress a finding you've already reviewed.</p>
 
     <div class="actions">
       <button id="btn-check" class="btn-hero" type="button">
@@ -120,6 +132,12 @@
     <div class="card" id="findings-card" hidden>
       <h2>🩺 Diagnosis</h2>
       <ul id="findings" class="findings"></ul>
+      <p id="noqa-note" class="noqa-note muted" hidden></p>
+      <div id="autofix-banner" class="autofix-banner" hidden>
+        <p><b>✨ Some of these can be fixed automatically</b><br>
+          <span id="autofix-titles" class="muted"></span></p>
+        <button id="btn-apply-fixes" class="btn-mini" type="button">Apply safe fixes</button>
+      </div>
     </div>
 
     <div class="answer-grid" id="answer-grid">

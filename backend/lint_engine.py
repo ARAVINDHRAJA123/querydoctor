@@ -838,7 +838,12 @@ def parse_ddl_to_schema(ddl: str, dialect: str = "bigquery") -> tuple[dict, list
     try:
         statements = sqlglot.parse(ddl, read=dialect)
     except Exception as e:
-        return {}, [f"Couldn't parse the DDL at all: {e}"]
+        # Only the first line: sqlglot's exception text can include a
+        # second, ANSI-highlighted line pointing at the failing token
+        # (terminal escape codes meant for a CLI, not a JSON API response) —
+        # same reason check_sql's own syntax-error path only ever takes
+        # str(e).split("\n")[0] rather than the full exception text.
+        return {}, [f"Couldn't parse the DDL at all: {_clean_parse_message(str(e).split('\n')[0])}"]
     schema: dict = {}
     skipped = 0
     for stmt in statements:

@@ -8,7 +8,7 @@ without an LLM.**
 [![Live App](https://img.shields.io/badge/Live_App-querydoctor.run.app-0ea371?style=for-the-badge&logo=googlecloud&logoColor=white)](https://querydoctor-616665622891.asia-south1.run.app)
 [![Dialects](https://img.shields.io/badge/Dialects-10_supported-14b8a6?style=for-the-badge&logo=databricks&logoColor=white)](#-supported-dialects)
 [![No AI](https://img.shields.io/badge/Engine-sqlglot,_zero_LLM-06b6d4?style=for-the-badge&logo=python&logoColor=white)](#-why-no-ai)
-[![Tests](https://img.shields.io/badge/Tests-253_passing-22c55e?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-254_passing-22c55e?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 **🔗 Try it now: https://querydoctor-616665622891.asia-south1.run.app**
 
@@ -51,6 +51,8 @@ Fix the typo, run it again:
 | 🚀 Optimizer | Deterministic sqlglot rewrites (constant folding, dead-predicate elimination); cosmetic-only diffs are suppressed, and rewrites that would silently change results are suppressed too — see [below](#-a-note-on-the-optimizer-suggestion) |
 | 🔁 Dialect translation | All 10×9 direction pairs verified (e.g. MySQL `IFNULL`/`GROUP_CONCAT` → BigQuery `COALESCE`/`STRING_AGG`) |
 | 🕐 Check-up history | Local-only drawer, stored in your browser |
+| 🗂️ Optional schema input | Paste `CREATE TABLE` DDL or JSON in the web app to unlock Unknown table/column checks |
+| ✨ One-click auto-fix | Web app shows a banner and applies the safe fixes (above) directly into your SQL box |
 | 🌗 Dark / light mode | Circular-wipe transition |
 | 🔒 Privacy | SQL checked in memory, never stored; no accounts |
 | 🤖 GitHub Action | Lints changed `.sql` files on every PR ([setup](#-use-it-as-a-github-action)) |
@@ -233,7 +235,7 @@ business logic," which is exactly the line an LLM-based tool would blur.
 
 ## 📊 By the numbers
 
-10 SQL dialects · 34 lint checks · 90 verified translation pairs · 253 tests passing
+10 SQL dialects · 34 lint checks · 90 verified translation pairs · 254 tests passing
 
 ## 🗣 Supported dialects
 

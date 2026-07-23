@@ -912,3 +912,15 @@ def test_cli_vendored_lint_engine_is_in_sync():
         "cli/lint_engine.py is out of sync with backend/lint_engine.py — "
         "run cli/sync_vendor.sh and commit the result"
     )
+
+def test_ddl_parse_error_has_no_ansi_escape_codes():
+    # Real bug found while testing the frontend: sqlglot's raw exception
+    # text can include a second line with ANSI terminal escape codes
+    # highlighting the failing token — fine for the CLI's terminal output,
+    # garbled and literal in a JSON API response rendered in a browser.
+    from backend.lint_engine import parse_ddl_to_schema
+    schema, warnings = parse_ddl_to_schema("CREATE TABLE BROKEN (((;", dialect="postgres")
+    assert schema == {}
+    assert len(warnings) == 1
+    assert "\x1b" not in warnings[0]
+    assert "\n" not in warnings[0]

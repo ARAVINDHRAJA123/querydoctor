@@ -26,6 +26,33 @@ fetch("api/dialects").then((r) => r.json()).then(({ dialects }) => {
 });
 
 $("btn-sample").addEventListener("click", () => { $("sql").value = SAMPLE; $("sql").focus(); });
+
+$("btn-schema-toggle").addEventListener("click", () => {
+  const showing = !$("schema-section").hidden;
+  $("schema-section").hidden = showing;
+  $("btn-schema-toggle").setAttribute("aria-expanded", String(!showing));
+  $("btn-schema-toggle").textContent = showing ? "+ Add schema (optional)" : "− Hide schema";
+  if (!showing) $("schema-input").focus();
+});
+
+/* Accepts either a JSON schema dict ({"table": ["col", ...]}) or raw
+   CREATE TABLE statements in the same box — parsed here only to decide
+   which API field to send it as; a JSON.parse failure just means "treat
+   it as DDL text," not an error, since the backend already tolerates
+   malformed DDL gracefully (schema_warnings) rather than crashing. */
+function schemaRequestFields() {
+  const raw = $("schema-input").value.trim();
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return { db_schema: parsed };
+    }
+  } catch {
+    /* not JSON — fall through to treating it as DDL */
+  }
+  return { ddl: raw };
+}
 $("btn-clear").addEventListener("click", () => {
   $("sql").value = "";
   $("results").hidden = true;
@@ -66,10 +93,20 @@ async function check() {
     const res = await fetch("api/check", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sql, dialect: $("dialect").value, target_dialect: $("target").value || null }),
+      body: JSON.stringify({
+        sql, dialect: $("dialect").value, target_dialect: $("target").value || null,
+        ...schemaRequestFields(),
+      }),
     });
     const d = await res.json();
-    if (!res.ok || d.ok === false) return setError(d.error || "Something went wrong. Please try again.");
+    if (!res.ok || d.ok === false) {
+      // Malformed db_schema/ddl shape fails FastAPI's own request validation
+      // before check_sql ever runs, coming back as {"detail": [...]} rather
+      // than our usual {"ok": false, "error": "..."} — surface that too
+      // instead of just falling back to a generic message.
+      const detailMsg = Array.isArray(d.detail) && d.detail[0] && d.detail[0].msg;
+      return setError(d.error || (detailMsg && `Schema: ${detailMsg}`) || "Something went wrong. Please try again.");
+    }
     addToHistory(sql, $("dialect").value, d.valid ? d.score : 0, d.valid);
     render(d);
   } catch {
@@ -86,6 +123,19 @@ function render(d) {
   $("results").hidden = false;
   const cards = ["syntax-card", "findings-card", "formatted-card", "optimized-card", "translated-card"];
   cards.forEach((c) => ($(c).hidden = true));
+  $("noqa-note").hidden = true;
+  $("autofix-banner").hidden = true;
+  $("schema-warning").hidden = true;
+
+  if ($("schema-input").value.trim()) {
+    // Surface schema parse issues even on a syntax-error result — a
+    // malformed schema shouldn't get silently swallowed just because the
+    // SQL itself also happened to be broken.
+    if (d.schema_warnings && d.schema_warnings.length) {
+      $("schema-warning").hidden = false;
+      $("schema-warning").textContent = "⚠️ " + d.schema_warnings.join(" ");
+    }
+  }
 
   if (!d.valid) {
     setRing(0, "var(--neg)");
@@ -115,6 +165,7 @@ function render(d) {
   animateNumber($("score"), score);
 
   const n = d.findings.length;
+  const suppressed = d.suppressed_by_noqa || [];
   if (n === 0) {
     $("verdict-title").textContent = "Clean bill of health ✅";
     $("verdict-sub").textContent = "Valid syntax and none of our checks found a problem. Nice work!";
@@ -123,12 +174,34 @@ function render(d) {
     $("verdict-title").textContent =
       worst === "high" ? "Needs attention 🚨" : worst === "medium" ? "Mostly healthy, minor issues 🩹" : "Healthy, small tips 💡";
     $("verdict-sub").textContent = `${n} finding${n > 1 ? "s" : ""} below — each explained in plain English.`;
-    $("findings-card").hidden = false;
     $("findings").innerHTML = d.findings.map((f, i) => `
       <li style="animation-delay:${i * 90}ms">
         <span class="sev ${f.severity}">${f.severity}</span>
         <div><b>${esc(f.title)}</b><p>${esc(f.message)}</p></div>
       </li>`).join("");
+  }
+
+  // The card also needs to show if there's nothing left in `findings`
+  // (n === 0) but something WAS found and suppressed via -- noqa — otherwise
+  // that suppression happens invisibly, which is exactly the "silently
+  // vanishes" outcome noqa was built to avoid.
+  if (n > 0 || suppressed.length > 0) {
+    $("findings-card").hidden = false;
+    $("findings").hidden = n === 0;
+  }
+  if (suppressed.length > 0) {
+    $("noqa-note").hidden = false;
+    $("noqa-note").textContent = `🔕 Suppressed by -- noqa: ${suppressed.join(", ")}`;
+  }
+
+  if (d.auto_fixed_sql && d.auto_fixed_titles && d.auto_fixed_titles.length) {
+    $("findings-card").hidden = false;
+    $("autofix-banner").hidden = false;
+    $("autofix-titles").textContent = d.auto_fixed_titles.join(" · ");
+    $("btn-apply-fixes").onclick = () => {
+      $("sql").value = d.auto_fixed_sql;
+      check();
+    };
   }
 
   if (d.formatted) {
