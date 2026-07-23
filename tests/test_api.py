@@ -714,3 +714,33 @@ def test_self_join_distinct_aliases_is_clean():
     d = check("SELECT e1.employee_id FROM employees e1 JOIN employees e2 ON e1.manager_id = e2.employee_id", "postgres").json()
     titles = {f["title"] for f in d["findings"]}
     assert "Self-join without a distinguishing alias" not in titles
+
+def test_leaked_alias_qualifier_flagged():
+    d = check(
+        "SELECT e.id, (SELECT AVG(e.e2.salary) FROM emp e2 WHERE e2.id = e.id) AS r FROM emp e",
+        "bigquery"
+    ).json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Table alias leaked into a column qualifier" in titles
+
+def test_normal_qualified_column_not_flagged_as_leaked_alias():
+    d = check("SELECT e2.salary FROM emp e2", "bigquery").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Table alias leaked into a column qualifier" not in titles
+
+def test_real_bigquery_dataset_qualifier_not_flagged():
+    d = check("SELECT x FROM `mydataset.mytable`", "bigquery").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Table alias leaked into a column qualifier" not in titles
+
+def test_scalar_subquery_aggregate_with_optimizer_style_alias_is_clean():
+    # The optimizer's own qualify pass wraps a bare AggFunc in an Alias
+    # (`AVG(x) AS _col_0`) — the rule must unwrap it, not treat an aliased
+    # aggregate as if it weren't one (a real false positive found while
+    # investigating a user-reported query).
+    d = check(
+        "SELECT e.id, (SELECT AVG(x) AS agg_col FROM t2 WHERE t2.id = e.id) AS r FROM t e",
+        "bigquery"
+    ).json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "Scalar subquery without LIMIT 1" not in titles

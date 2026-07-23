@@ -282,7 +282,8 @@ def _rule_scalar_subquery_no_limit(tree):
                     continue
                 if inner.args.get("limit"):
                     continue
-                if any(isinstance(e, exp.AggFunc) for e in inner.expressions) and not inner.args.get("group"):
+                unwrapped = [e.this if isinstance(e, exp.Alias) else e for e in inner.expressions]
+                if any(isinstance(e, exp.AggFunc) for e in unwrapped) and not inner.args.get("group"):
                     continue
                 yield ("medium", "Scalar subquery without LIMIT 1",
                        "This subquery is used as a single value, but nothing guarantees it returns at "
@@ -549,6 +550,33 @@ def _rule_self_join_same_alias(tree):
                        "Give each reference to this table a distinct alias.")
                 return
             seen.add(key)
+
+
+def _rule_leaked_alias_qualifier(tree):
+    """`e.e2.salary` — a 3-part column reference where the first part
+    ("database"/"project" in sqlglot's parsing) is exactly a table alias
+    used elsewhere in the query. A real dataset/project name coincidentally
+    matching another table's alias in the same query is vanishingly
+    unlikely; this is virtually always an outer-scope correlation alias
+    that leaked into an inner qualifier — most often produced by copy-
+    pasting a rewritten/generated query (e.g. from a query optimizer) that
+    incorrectly re-qualified an already-correct `e2.salary` into
+    `e.e2.salary`. It parses as valid dataset.table.column syntax, but
+    running it for real fails with something like "Dataset e not found",
+    since the alias was never a real dataset."""
+    all_aliases = {t.alias_or_name.lower() for t in tree.find_all(exp.Table) if t.alias_or_name}
+    seen = set()
+    for c in tree.find_all(exp.Column):
+        db = c.args.get("db")
+        db_name = db.this if db else None
+        if db_name and db_name.lower() in all_aliases and db_name.lower() not in seen:
+            seen.add(db_name.lower())
+            yield ("high", "Table alias leaked into a column qualifier",
+                   f"`{c.sql()}` — the leading part (`{db_name}`) is a table alias used elsewhere in this "
+                   "query, not a real dataset/project name. This parses as valid `dataset.table.column` "
+                   "syntax, but running it for real will fail (e.g. \"Dataset not found\") since that alias "
+                   f"was never an actual dataset. Likely meant `{c.table}.{c.this.this if hasattr(c.this, 'this') else c.this}` "
+                   "— probably left over from a copy-pasted or auto-generated rewrite.")
 
 
 def _rule_mixed_agg_no_group_by(tree):
@@ -834,6 +862,7 @@ RULES = [
     _rule_ambiguous_column_multi_table,
     _rule_alias_in_own_over,
     _rule_self_join_same_alias,
+    _rule_leaked_alias_qualifier,
 ]
 
 SEV_WEIGHT = {"high": 30, "medium": 12, "low": 5}
