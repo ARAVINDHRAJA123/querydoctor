@@ -8,3 +8,6 @@ CLAUDE.md
 cli/build/
 cli/*.egg-info/
 cli/dist/
+
+# VS Code extension packaging artifact
+vscode-extension/*.vsix

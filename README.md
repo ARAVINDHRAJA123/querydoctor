@@ -55,6 +55,7 @@ Fix the typo, run it again:
 | 🔒 Privacy | SQL checked in memory, never stored; no accounts |
 | 🤖 GitHub Action | Lints changed `.sql` files on every PR ([setup](#-use-it-as-a-github-action)) |
 | 🖥️ CLI | Local, offline batch linting for pre-commit hooks / local CI ([cli/](cli/)) |
+| 🧩 VS Code (v0.1, unpublished) | Check the current file, apply safe auto-fixes, view the optimizer suggestion — from an Output panel, not inline (see [vscode-extension/](vscode-extension/) for why) |
 
 ### The 34 lint checks
 

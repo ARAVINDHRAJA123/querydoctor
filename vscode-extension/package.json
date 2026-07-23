@@ -1,0 +1,39 @@
+{
+  "name": "querydoctor",
+  "displayName": "QueryDoctor",
+  "description": "SQL health check, lint findings, and safe auto-fixes from QueryDoctor — no DB connection needed.",
+  "version": "0.1.0",
+  "publisher": "querydoctor-local",
+  "private": true,
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Linters", "Formatters"],
+  "activationEvents": [
+    "onCommand:querydoctor.check",
+    "onCommand:querydoctor.applyAutoFixes",
+    "onCommand:querydoctor.showOptimized"
+  ],
+  "main": "./src/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "querydoctor.check", "title": "QueryDoctor: Check Current File" },
+      { "command": "querydoctor.applyAutoFixes", "title": "QueryDoctor: Apply Safe Auto-Fixes" },
+      { "command": "querydoctor.showOptimized", "title": "QueryDoctor: Show Optimized Query" }
+    ],
+    "configuration": {
+      "title": "QueryDoctor",
+      "properties": {
+        "querydoctor.dialect": {
+          "type": "string",
+          "default": "bigquery",
+          "enum": ["bigquery", "postgres", "mysql", "snowflake", "spark", "sqlite", "tsql", "oracle", "duckdb", "redshift"],
+          "description": "SQL dialect to check against."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}
