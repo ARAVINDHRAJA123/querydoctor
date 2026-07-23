@@ -321,6 +321,28 @@ function closeDrawer() {
 $("btn-history").addEventListener("click", () =>
   $("drawer").classList.contains("open") ? closeDrawer() : openDrawer());
 
+/* ── About modal ── */
+function openAbout() {
+  $("about-modal").hidden = false;
+  $("about-backdrop").hidden = false;
+  requestAnimationFrame(() => {
+    $("about-modal").classList.add("open");
+    $("about-backdrop").classList.add("show");
+  });
+}
+function closeAbout() {
+  $("about-modal").classList.remove("open");
+  $("about-backdrop").classList.remove("show");
+  setTimeout(() => {
+    $("about-modal").hidden = true;
+    $("about-backdrop").hidden = true;
+  }, 350);
+}
+$("btn-about").addEventListener("click", () =>
+  $("about-modal").hidden ? openAbout() : closeAbout());
+$("btn-about-close").addEventListener("click", closeAbout);
+$("about-backdrop").addEventListener("click", closeAbout);
+
 /* Privacy tooltip: :hover/:focus-visible already show it on desktop via CSS;
    this adds tap-to-show (with auto-hide) for touch devices, where hover
    never fires. */
@@ -334,7 +356,11 @@ $("btn-privacy").addEventListener("click", (e) => {
 });
 document.addEventListener("click", () => $("privacy-tip").classList.remove("show"));
 $("drawer-backdrop").addEventListener("click", closeDrawer);
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  closeDrawer();
+  if (!$("about-modal").hidden) closeAbout();
+});
 $("btn-clear-history").addEventListener("click", () => {
   localStorage.removeItem(HIST_KEY);
   renderHistory();

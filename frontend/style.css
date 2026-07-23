@@ -106,6 +106,7 @@ body {
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 .topbar-left { display: flex; align-items: center; gap: 8px; }
+.topbar-right { display: flex; align-items: center; gap: 10px; }
 .btn-history {
   width: 40px; height: 40px; border-radius: 12px; border: 0;
   background: none; color: var(--muted); cursor: pointer;
@@ -158,6 +159,35 @@ body {
 }
 .h-sub { font-size: 12px; color: var(--muted); }
 .drawer-empty { color: var(--muted); font-size: 14.5px; text-align: center; margin-top: 30px; }
+
+/* ── About modal ── */
+.about-modal {
+  position: fixed; z-index: 70; top: 50%; left: 50%;
+  width: min(640px, 92vw); max-height: min(82vh, 720px);
+  background: var(--card); border-radius: var(--radius); box-shadow: 0 20px 70px rgba(0, 0, 0, .4);
+  display: flex; flex-direction: column;
+  opacity: 0; transform: translate(-50%, -48%) scale(.96);
+  pointer-events: none;
+  transition: opacity .3s ease, transform .35s var(--spring);
+}
+.about-modal.open { opacity: 1; transform: translate(-50%, -50%) scale(1); pointer-events: auto; }
+.about-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 18px 20px 12px; border-bottom: 1px solid var(--line); flex: none;
+}
+.about-head h2 { font-size: 19px; }
+.about-body { overflow-y: auto; padding: 4px 20px 22px; }
+.about-section { margin-top: 20px; }
+.about-section:first-child { margin-top: 16px; }
+.about-section h3 {
+  font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--brand); margin-bottom: 10px;
+}
+.about-section p { color: var(--ink); font-size: 15px; line-height: 1.6; margin-bottom: 10px; }
+.about-section ol, .about-section ul { padding-left: 22px; color: var(--ink); font-size: 15px; line-height: 1.6; }
+.about-section li { margin-bottom: 10px; }
+.about-section code { font-size: 13px; }
+.about-section a { color: var(--brand); font-weight: 600; }
 .privacy-tip-wrap { position: relative; display: inline-flex; }
 .btn-privacy {
   width: 40px; height: 40px; border-radius: 12px; border: 1.5px solid var(--line);

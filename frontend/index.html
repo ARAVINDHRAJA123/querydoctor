@@ -36,16 +36,103 @@
     <span>QueryDoctor</span>
   </div>
   </div>
-  <div class="privacy-tip-wrap">
-    <button id="btn-privacy" class="btn-privacy" type="button" aria-describedby="privacy-tip">
+  <div class="topbar-right">
+    <button id="btn-about" class="btn-privacy" type="button" aria-haspopup="dialog" aria-controls="about-modal" aria-label="About QueryDoctor">
       <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-        <rect x="5" y="11" width="14" height="9" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/>
-        <path d="M8 11V7a4 4 0 0 1 8 0v4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/>
+        <path d="M12 11v5.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="12" cy="7.6" r="1.15" fill="currentColor"/>
       </svg>
     </button>
-    <span id="privacy-tip" class="privacy-tip" role="tooltip">🔒 Your queries are never stored anywhere</span>
+    <div class="privacy-tip-wrap">
+      <button id="btn-privacy" class="btn-privacy" type="button" aria-describedby="privacy-tip">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <rect x="5" y="11" width="14" height="9" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/>
+          <path d="M8 11V7a4 4 0 0 1 8 0v4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <span id="privacy-tip" class="privacy-tip" role="tooltip">🔒 Your queries are never stored anywhere</span>
+    </div>
   </div>
 </header>
+
+<!-- ── About modal ── -->
+<div id="about-backdrop" class="drawer-backdrop" hidden></div>
+<div id="about-modal" class="about-modal" role="dialog" aria-modal="true" aria-labelledby="about-title" hidden>
+  <div class="about-head">
+    <h2 id="about-title">🩺 What is QueryDoctor?</h2>
+    <button id="btn-about-close" class="btn-mini" type="button" aria-label="Close">✕</button>
+  </div>
+  <div class="about-body">
+
+    <section class="about-section">
+      <h3>In plain English</h3>
+      <p>QueryDoctor reads a database query (written in SQL, the language used to ask a database for
+        data) and tells you, in plain language, whether it's actually correct — and if not, exactly
+        what's wrong and how to fix it. Think of it like a spell-checker or a proofreader, but for
+        database questions instead of sentences. You paste your query in, and within a second it hands
+        back a report card: a health score out of 100, a list of problems explained the way you'd
+        explain them to a colleague (not in error-code jargon), and a cleaned-up version you can copy
+        and use right away.</p>
+      <p>You don't need to know how databases work internally, and nothing you paste in is ever saved,
+        shared, or looked at by anyone — it's checked, shown to you, and then it's gone.</p>
+    </section>
+
+    <section class="about-section">
+      <h3>Step by step, what happens when you use it</h3>
+      <ol>
+        <li><b>You paste a query</b> and pick which "dialect" it's written in (different databases —
+          BigQuery, Postgres, MySQL, and 7 others — have slightly different SQL vocabulary, the same
+          way British and American English spell a few words differently).</li>
+        <li><b>You tap "Diagnose my SQL."</b> Nothing is sent anywhere except that one check — no
+          account, no login, no saved history on any server.</li>
+        <li><b>First, it checks the query actually makes sense at all</b> — like checking a sentence is
+          grammatically valid before checking if it's well-written. If it doesn't, you get the exact
+          spot the problem is and a plain-English guess at what you meant.</li>
+        <li><b>If it's valid, it's screened against 34 known mistake patterns</b> — real, common ways
+          queries quietly do the wrong thing (like accidentally multiplying your results, or a
+          comparison that can never be true) even though they "look" fine and would never error out
+          on their own. Each one found is explained in a sentence or two, not a code.</li>
+        <li><b>You get a health score (0–100)</b> summarizing all of that at a glance, plus (when
+          relevant) a cleaned-up version, a rewritten/optimized version, some fixes applied
+          automatically with one click, and a translation into a different database's dialect.</li>
+      </ol>
+    </section>
+
+    <section class="about-section">
+      <h3>For developers: what's actually under the hood</h3>
+      <ul>
+        <li><b>Zero LLM, fully deterministic.</b> No AI model is involved and nothing is
+          "guessed" — the engine is <a href="https://github.com/tobymao/sqlglot" target="_blank" rel="noopener">sqlglot</a>,
+          a pure-Python SQL parser, used to build a real abstract syntax tree (AST) and reason about it
+          structurally. Same input always produces the exact same output, with no hallucination risk
+          and no per-request inference cost.</li>
+        <li><b>34 hand-written AST rules</b> (plus a token-level missing-comma detector) catch real
+          correctness bugs, not just style nits — silent NULL-comparison traps, outer joins quietly
+          turned into inner joins by a stray WHERE clause, aggregates mixed with ungrouped columns,
+          self-joins missing a distinguishing alias, a table alias accidentally leaking into a column's
+          dataset qualifier, and more. See the <a href="https://github.com/ARAVINDHRAJA123/querydoctor#-what-it-does" target="_blank" rel="noopener">full rule list</a>.</li>
+        <li><b>The optimizer suggestion doesn't just trust itself.</b> sqlglot's own rewrite engine can,
+          in certain correlated-subquery shapes, silently change a query's actual results — QueryDoctor
+          detects that risk structurally <i>and</i> independently re-verifies the rewrite by executing
+          both the original and optimized query against synthetic in-memory SQLite data and comparing
+          results, before ever showing you a "cleaner" version.</li>
+        <li><b>Optional schema awareness.</b> Paste real <code>CREATE TABLE</code> DDL or a JSON schema
+          to unlock Unknown table/Unknown column checks — entirely opt-in, parsed locally, never
+          required.</li>
+        <li><b><code>-- noqa</code> suppression</b> (matching sqlfluff's own convention) to dismiss a
+          finding you've already reviewed, and a small set of <b>zero-ambiguity auto-fixes</b>
+          (<code>x = NULL</code> → <code>IS NULL</code>, etc.) that are self-verified by re-running the
+          actual rules against the fixed result before ever calling something "fixed."</li>
+        <li><b>Also available as:</b> a <a href="https://github.com/ARAVINDHRAJA123/querydoctor#-use-it-as-a-github-action" target="_blank" rel="noopener">GitHub Action</a>
+          (comments on PRs), a local CLI (batch-lint files offline, no network call), and a v0.1 VS Code
+          extension. All run the identical rule engine as this page.</li>
+        <li><b>Source</b>: <a href="https://github.com/ARAVINDHRAJA123/querydoctor" target="_blank" rel="noopener">github.com/ARAVINDHRAJA123/querydoctor</a> — MIT licensed.</li>
+      </ul>
+    </section>
+
+  </div>
+</div>
 
 <!-- ── History drawer (stored only in this browser via localStorage) ── -->
 <div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
