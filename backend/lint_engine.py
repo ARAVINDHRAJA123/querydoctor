@@ -793,6 +793,87 @@ def _has_unsound_decorrelation_risk(tree) -> bool:
     return False
 
 
+def _left_join_optional_alias_pairs(tree):
+    """Mirror _rule_left_join_nullified_by_where's own alias derivation, so
+    the execution verifier below tests the exact same (main, optional)
+    pairs the rule considered when it fired."""
+    pairs = []
+    for select in tree.find_all(exp.Select):
+        from_ = select.args.get("from_") or select.args.get("from")
+        main_table = from_.this.alias_or_name if from_ else None
+        if not main_table:
+            continue
+        for j in select.args.get("joins") or []:
+            side = j.args.get("side")
+            if side == "LEFT":
+                pairs.append((main_table, j.this.alias_or_name))
+            elif side == "RIGHT":
+                pairs.append((j.this.alias_or_name, main_table))
+            elif side == "FULL":
+                pairs.append((main_table, j.this.alias_or_name))
+    return pairs
+
+
+def _left_join_survives_when_unmatched(tree, main_alias, optional_alias) -> str:
+    """Execution-based second opinion for the nullified-outer-join rule:
+    build synthetic data where the main table has exactly one row and the
+    joined table has NO matching row at all (the exact scenario the rule
+    worries about), then check whether that unmatched main row survives
+    the whole query. If it does, the WHERE clause is NULL-safe (e.g.
+    COALESCE-guarded) and the rule's finding is a false positive — confirmed
+    via a real, concrete gap: `WHERE COALESCE(o.status, 'none') != 'x'`
+    still gets flagged by AST inspection alone, even though it can never
+    actually drop an unmatched row. 'filtered_out' is deliberately NOT
+    treated as confirmation of a bug — an intentional `IS NOT NULL`
+    semi-join guard produces identical behavior to a genuine accidental
+    nullify from data alone, so this can only ever suppress, never confirm."""
+    alias_to_table = {t.alias_or_name: t.name for t in tree.find_all(exp.Table)}
+    main_table = alias_to_table.get(main_alias)
+    optional_table = alias_to_table.get(optional_alias)
+    if not main_table or not optional_table:
+        return "inconclusive"
+    columns_by_table, unresolved = _schema_columns_for_verification(tree)
+    if unresolved or len(columns_by_table) > 4:
+        return "inconclusive"
+    conn = sqlite3.connect(":memory:")
+    try:
+        cur = conn.cursor()
+        for table, cols in columns_by_table.items():
+            cols = sorted(cols)
+            if not cols:
+                continue
+            col_defs = ", ".join(f'"{c}"' for c in cols)
+            cur.execute(f'CREATE TABLE "{table}" ({col_defs})')
+        conn.commit()
+        main_cols = sorted(columns_by_table.get(main_table, ()))
+        if main_cols:
+            placeholders = ", ".join("?" for _ in main_cols)
+            cur.execute(f'INSERT INTO "{main_table}" VALUES ({placeholders})', [111] * len(main_cols))
+        conn.commit()  # optional_table stays empty -> guarantees no match
+        sqlglot_logger = logging.getLogger("sqlglot")
+        prev_level = sqlglot_logger.level
+        sqlglot_logger.setLevel(logging.ERROR)
+        try:
+            sql = tree.sql(dialect="sqlite")
+        finally:
+            sqlglot_logger.setLevel(prev_level)
+        rows = cur.execute(sql).fetchall()
+        return "survives" if len(rows) > 0 else "filtered_out"
+    except Exception:
+        return "inconclusive"
+    finally:
+        conn.close()
+
+
+def _left_join_nullify_finding_is_false_positive(tree) -> bool:
+    if not isinstance(tree, exp.Select):
+        return False
+    for main_alias, optional_alias in _left_join_optional_alias_pairs(tree):
+        if _left_join_survives_when_unmatched(tree, main_alias, optional_alias) == "survives":
+            return True
+    return False
+
+
 def _schema_columns_for_verification(tree):
     """Map each real table name referenced in the query to the set of its
     columns the query actually touches, resolving aliases (including
@@ -991,6 +1072,12 @@ def check_sql(sql: str, dialect: str = "bigquery", target_dialect: str | None = 
                 if not any(f["title"] == title for f in findings):
                     findings.append({"severity": sev, "title": title, "message": msg})
     findings.extend(detect_missing_comma(sql))
+    if any(f["title"] == "WHERE clause nullifies an outer JOIN" for f in findings):
+        # Execution-based second opinion, additive only: never adds a
+        # finding, only removes one already confirmed as a false positive
+        # (see _left_join_nullify_finding_is_false_positive's docstring).
+        if any(_left_join_nullify_finding_is_false_positive(t) for t in trees):
+            findings = [f for f in findings if f["title"] != "WHERE clause nullifies an outer JOIN"]
     findings.sort(key=lambda f: ["high", "medium", "low"].index(f["severity"]))
 
     score = max(0, 100 - sum(SEV_WEIGHT[f["severity"]] for f in findings))

@@ -634,3 +634,20 @@ def test_sqlite_verify_inconclusive_for_array_based_rewrite():
     t = sqlglot.parse_one(sql, read="postgres")
     ot = optimize(t.copy(), dialect="postgres")
     assert _sqlite_verify_equivalent(t, ot) == "inconclusive"
+
+def test_left_join_coalesce_guarded_where_is_clean():
+    # COALESCE(o.status, 'none') is NULL-safe — an unmatched row's o.status
+    # becomes 'none', which never equals 'cancelled', so it survives the
+    # filter. The AST-only rule can't see this; the execution-based second
+    # opinion (_left_join_nullify_finding_is_false_positive) should.
+    d = check(
+        "SELECT c.id, o.id FROM customers c LEFT JOIN orders o ON o.customer_id = c.id "
+        "WHERE COALESCE(o.status, 'none') != 'cancelled'", "postgres"
+    ).json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "WHERE clause nullifies an outer JOIN" not in titles
+
+def test_left_join_genuine_nullify_still_flagged_after_execution_check():
+    d = check("SELECT o.id FROM customers c LEFT JOIN orders o ON o.customer_id = c.id WHERE o.amount > 100", "postgres").json()
+    titles = {f["title"] for f in d["findings"]}
+    assert "WHERE clause nullifies an outer JOIN" in titles
