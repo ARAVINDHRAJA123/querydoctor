@@ -425,6 +425,20 @@ textarea:focus {
 }
 .btn-mini:hover { transform: scale(1.07); background: color-mix(in srgb, var(--brand) 20%, transparent); }
 .btn-mini:active { transform: scale(.9); }
+/* Same compact .btn-mini footprint, bright gradient + forced white text
+   like .btn-hero-green — Load/Delete need to read as distinct, deliberate
+   actions in a row of otherwise-neutral buttons. */
+.btn-mini-blue, .btn-mini-red {
+  color: #fff !important;
+  box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--brand) 60%, transparent);
+}
+.btn-mini-blue { background: linear-gradient(120deg, var(--brand), var(--brand-2)); }
+.btn-mini-blue:hover { background: linear-gradient(120deg, var(--brand), var(--brand-2)); box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--brand) 70%, transparent); }
+.btn-mini-red {
+  background: linear-gradient(120deg, var(--neg), #b91c1c);
+  box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--neg) 60%, transparent);
+}
+.btn-mini-red:hover { background: linear-gradient(120deg, var(--neg), #b91c1c); box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--neg) 70%, transparent); }
 
 .error {
   margin-top: 12px; color: var(--neg); font-weight: 600;
