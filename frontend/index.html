@@ -332,9 +332,9 @@
     <h2>🔑 Block merges in CI, not just comment</h2>
     <p class="muted">The <a href="https://github.com/ARAVINDHRAJA123/querydoctor#-use-it-as-a-github-action" target="_blank" rel="noopener">GitHub Action</a> is free forever for PR comments.
       An API key also unlocks <code>fail-on-severity</code> — actually blocking the merge.</p>
-    <label class="mask-toggle" for="buyer-email" style="display:block;margin-bottom:10px">
-      Email (optional — for a renewal reminder 3 days before your key expires)
-      <input type="email" id="buyer-email" placeholder="you@example.com" style="display:block;margin-top:6px;width:100%;max-width:320px">
+    <label class="email-field" for="buyer-email">
+      <span>Email <span class="muted">(optional — for a renewal reminder 3 days before your key expires)</span></span>
+      <input type="email" id="buyer-email" class="email-input" placeholder="you@example.com" autocomplete="email">
     </label>
     <div class="pricing-grid">
       <div class="price-tier">

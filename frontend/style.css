@@ -561,6 +561,20 @@ textarea:focus {
 /* ── Pricing / API key purchase ── */
 .pricing-card { animation-delay: .3s; }
 .pricing-card p.muted { margin-bottom: 18px; font-size: 14.5px; }
+.email-field { display: block; margin-bottom: 18px; font-size: 14.5px; font-weight: 600; }
+.email-field > span:first-child { display: block; margin-bottom: 8px; color: var(--ink); }
+.email-field .muted { font-weight: 500; }
+.email-input {
+  display: block; width: 100%; max-width: 340px;
+  font: 500 15px/1.5 inherit; color: var(--ink); background: var(--bg);
+  border: 1.5px solid var(--line); border-radius: 12px; padding: 11px 14px;
+  transition: box-shadow .2s ease; /* not border-color — see .btn-privacy's comment earlier in this file */
+}
+.email-input::placeholder { color: var(--muted); }
+.email-input:focus {
+  border-color: var(--brand); outline: none;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 18%, transparent);
+}
 .pricing-footnote { margin-top: 14px; margin-bottom: 0; font-size: 13px; }
 .pricing-card a { color: var(--brand); font-weight: 700; text-decoration: none; }
 .pricing-card a:hover { text-decoration: underline; }
