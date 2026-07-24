@@ -940,3 +940,19 @@ def test_compare_endpoint_syntax_error_reports_reason():
 def test_compare_endpoint_rejects_oversized_input():
     r = client.post("/api/compare", json={"sql_a": "SELECT 1", "sql_b": "x" * 200_001, "dialect": "postgres"})
     assert r.status_code == 422
+
+def test_optimized_diff_present_when_optimizer_suggestion_shown():
+    d = check("SELECT * FROM t WHERE 1=1 AND x > 5", "postgres").json()
+    assert d["optimized"] is not None
+    assert d["optimized_diff"] is not None
+    assert any("removed" in diff["category"] for diff in d["optimized_diff"])
+
+def test_auto_fixed_diff_present_when_fix_applied():
+    d = check("SELECT * FROM t WHERE x = NULL", "postgres").json()
+    assert d["auto_fixed_sql"] is not None
+    assert d["auto_fixed_diff"] is not None
+
+def test_optimized_diff_none_when_no_optimization():
+    d = check("SELECT 1", "postgres").json()
+    assert d["optimized"] is None
+    assert d["optimized_diff"] is None

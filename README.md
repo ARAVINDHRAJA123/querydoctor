@@ -8,7 +8,7 @@ without an LLM.**
 [![Live App](https://img.shields.io/badge/Live_App-querydoctor.run.app-0ea371?style=for-the-badge&logo=googlecloud&logoColor=white)](https://querydoctor-616665622891.asia-south1.run.app)
 [![Dialects](https://img.shields.io/badge/Dialects-10_supported-14b8a6?style=for-the-badge&logo=databricks&logoColor=white)](#-supported-dialects)
 [![No AI](https://img.shields.io/badge/Engine-sqlglot,_zero_LLM-06b6d4?style=for-the-badge&logo=python&logoColor=white)](#-why-no-ai)
-[![Tests](https://img.shields.io/badge/Tests-287_passing-22c55e?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-290_passing-22c55e?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 **🔗 Try it now: https://querydoctor-616665622891.asia-south1.run.app**
 
@@ -57,6 +57,8 @@ Fix the typo, run it again:
 | ⌨️ Real code editor | The SQL boxes (Diagnose and both Compare panes) are CodeMirror — syntax highlighting, line numbers, bracket matching, self-hosted (no CDN) |
 | 🗣️ Plain-English explainer | Deterministic, no-LLM summary of what a query does ("selects X from A joined with B, filtered by C…"), shown alongside a valid diagnosis |
 | 🔗 Shareable links | "Share" copies a link with the SQL URL-hash-encoded; opening it pre-fills the box but never auto-runs the check — that's still your click |
+| 📋 "What changed" diffs | The Optimizer suggestion and Auto-fix cards show a plain-English diff of what they actually changed, reusing the Compare engine |
+| 🗂️ Saved schema profiles | Name and save a schema in the web app so you don't re-paste the same DDL every session (localStorage, this device only) |
 | 🌗 Dark / light mode | Circular-wipe transition |
 | 🔒 Privacy | SQL checked in memory, never stored; no accounts |
 | 🤖 GitHub Action | Lints changed `.sql` files on every PR ([setup](#-use-it-as-a-github-action)) |
@@ -239,7 +241,7 @@ business logic," which is exactly the line an LLM-based tool would blur.
 
 ## 📊 By the numbers
 
-10 SQL dialects · 34 lint checks · 90 verified translation pairs · 287 tests passing
+10 SQL dialects · 34 lint checks · 90 verified translation pairs · 290 tests passing
 
 ## 🗣 Supported dialects
 

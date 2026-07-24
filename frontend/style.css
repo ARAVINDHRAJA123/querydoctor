@@ -459,6 +459,8 @@ textarea:focus {
 
 /* ── Findings ── */
 .findings { list-style: none; }
+.diff-list { margin-top: 10px; }
+.diff-list li { padding: 8px 4px; font-size: 14px; }
 .findings li {
   display: flex; gap: 12px; align-items: flex-start;
   padding: 13px 4px; border-bottom: 1px solid var(--line);
@@ -491,6 +493,12 @@ textarea:focus {
 .schema-label code { font-size: 13px; }
 .schema-textarea { min-height: 90px; font-size: 14px; }
 .schema-warning { margin-top: 8px; color: var(--warn); }
+.schema-profile-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+.schema-profile-row select, .schema-profile-row input {
+  font: inherit; font-size: 14px; color: var(--ink); background: var(--bg);
+  border: 1.5px solid var(--line); border-radius: 10px; padding: 6px 10px;
+}
+.schema-profile-row input { flex: 1; min-width: 140px; }
 .noqa-hint { margin-top: 8px; font-size: 13.5px; }
 .noqa-hint code { font-size: 12.5px; }
 

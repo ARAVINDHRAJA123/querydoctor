@@ -183,6 +183,13 @@
       <textarea id="schema-input" class="schema-textarea" spellcheck="false" autocapitalize="off" autocomplete="off"
         placeholder="CREATE TABLE orders (id INT, amount DECIMAL, customer_id INT);"></textarea>
       <p id="schema-warning" class="schema-warning muted" hidden></p>
+      <div class="schema-profile-row">
+        <select id="schema-profile-select"><option value="">Load saved schema…</option></select>
+        <button id="btn-schema-load" class="btn-mini" type="button">Load</button>
+        <button id="btn-schema-delete" class="btn-mini" type="button">Delete</button>
+        <input id="schema-profile-name" type="text" placeholder="Name this schema…" autocomplete="off">
+        <button id="btn-schema-save" class="btn-mini" type="button">Save</button>
+      </div>
     </div>
 
     <textarea id="sql" spellcheck="false" autocapitalize="off" autocomplete="off"
@@ -287,8 +294,11 @@
       <ul id="findings" class="findings"></ul>
       <p id="noqa-note" class="noqa-note muted" hidden></p>
       <div id="autofix-banner" class="autofix-banner" hidden>
-        <p><b>✨ Some of these can be fixed automatically</b><br>
-          <span id="autofix-titles" class="muted"></span></p>
+        <div>
+          <p><b>✨ Some of these can be fixed automatically</b><br>
+            <span id="autofix-titles" class="muted"></span></p>
+          <ul id="autofix-diff" class="findings diff-list" hidden></ul>
+        </div>
         <button id="btn-apply-fixes" class="btn-hero btn-hero-green" type="button">Apply safe fixes</button>
       </div>
     </div>
@@ -305,6 +315,7 @@
           <button class="btn-mini btn-copy" data-target="optimized-code" type="button">Copy</button></div>
         <p class="muted">A logically equivalent rewrite (simplified predicates, pruned expressions). Review before using.</p>
         <pre id="optimized-code" class="code"></pre>
+        <ul id="optimized-diff" class="findings diff-list" hidden></ul>
       </div>
     </div>
 

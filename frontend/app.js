@@ -93,6 +93,52 @@ $("btn-schema-toggle").addEventListener("click", () => {
   if (!showing) $("schema-input").focus();
 });
 
+/* ── Saved schema profiles (localStorage — same "this device only" model
+   as check history) — removes the friction of re-pasting the same DDL
+   every session. ── */
+const SCHEMA_PROFILES_KEY = "qd-schema-profiles";
+const loadSchemaProfiles = () => { try { return JSON.parse(localStorage.getItem(SCHEMA_PROFILES_KEY)) || {}; } catch { return {}; } };
+const saveSchemaProfiles = (p) => localStorage.setItem(SCHEMA_PROFILES_KEY, JSON.stringify(p));
+
+function renderSchemaProfiles() {
+  const profiles = loadSchemaProfiles();
+  const select = $("schema-profile-select");
+  const current = select.value;
+  select.innerHTML = '<option value="">Load saved schema…</option>' +
+    Object.keys(profiles).sort().map((name) => `<option value="${esc(name)}">${esc(name)}</option>`).join("");
+  if (profiles[current]) select.value = current;
+}
+
+$("btn-schema-save").addEventListener("click", () => {
+  const name = $("schema-profile-name").value.trim();
+  const content = $("schema-input").value.trim();
+  if (!name) return setError("Name the schema before saving it.");
+  if (!content) return setError("Nothing in the schema box to save.");
+  const profiles = loadSchemaProfiles();
+  profiles[name] = content;
+  saveSchemaProfiles(profiles);
+  renderSchemaProfiles();
+  $("schema-profile-select").value = name;
+  $("schema-profile-name").value = "";
+});
+
+$("btn-schema-load").addEventListener("click", () => {
+  const name = $("schema-profile-select").value;
+  if (!name) return;
+  const profiles = loadSchemaProfiles();
+  if (profiles[name] === undefined) return; // stale selection somehow — no-op, not an error
+  $("schema-input").value = profiles[name];
+});
+
+$("btn-schema-delete").addEventListener("click", () => {
+  const name = $("schema-profile-select").value;
+  if (!name) return;
+  const profiles = loadSchemaProfiles();
+  delete profiles[name];
+  saveSchemaProfiles(profiles);
+  renderSchemaProfiles();
+});
+
 /* ── Diagnose / Compare mode toggle ── */
 function setMode(mode) {
   const diagnosing = mode === "diagnose";
@@ -152,6 +198,23 @@ async function compare() {
     btn.disabled = false;
     btn.lastChild.textContent = " Compare ";
   }
+}
+
+/* Shared by the optimizer/auto-fix "what changed" lists and (indirectly,
+   same shape) the Compare feature's diff output. */
+function renderDiffList(elId, diffs) {
+  const el = $(elId);
+  if (!diffs || !diffs.length) {
+    el.hidden = true;
+    el.innerHTML = "";
+    return;
+  }
+  el.hidden = false;
+  el.innerHTML = diffs.map((diff, i) => `
+    <li style="animation-delay:${i * 90}ms">
+      <span class="sev low">${esc(diff.category)}</span>
+      <div><p>${esc(diff.message)}</p></div>
+    </li>`).join("");
 }
 
 function renderCompare(d) {
@@ -440,6 +503,7 @@ function render(d) {
     $("findings-card").hidden = false;
     $("autofix-banner").hidden = false;
     $("autofix-titles").textContent = d.auto_fixed_titles.join(" · ");
+    renderDiffList("autofix-diff", d.auto_fixed_diff);
     $("btn-apply-fixes").onclick = () => {
       setEditorValue("sql", d.auto_fixed_sql);
       check();
@@ -453,6 +517,7 @@ function render(d) {
   if (d.optimized) {
     $("optimized-card").hidden = false;
     $("optimized-code").textContent = d.optimized;
+    renderDiffList("optimized-diff", d.optimized_diff);
   }
   if (d.translated) {
     $("translated-card").hidden = false;
@@ -761,3 +826,4 @@ wireCheckShortcut("sql", check);
 wireCheckShortcut("sql-a", compare);
 wireCheckShortcut("sql-b", compare);
 loadFromShareLink();
+renderSchemaProfiles();

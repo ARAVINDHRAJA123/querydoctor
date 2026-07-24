@@ -1483,6 +1483,13 @@ def check_sql(sql: str, dialect: str = "bigquery", target_dialect: str | None = 
     except Exception:
         optimized = None
 
+    optimized_diff = None
+    if optimized and len(trees) == 1:
+        try:
+            optimized_diff = _diff_tree_pair(trees[0], opt_trees[0])
+        except Exception:
+            optimized_diff = None
+
     # 5. Optional translation
     translated = None
     if target_dialect and target_dialect in DIALECTS and target_dialect != dialect:
@@ -1518,6 +1525,13 @@ def check_sql(sql: str, dialect: str = "bigquery", target_dialect: str | None = 
         auto_fixed_sql = None
         auto_fixed_titles = set()
 
+    auto_fixed_diff = None
+    if auto_fixed_sql and len(trees) == 1:
+        try:
+            auto_fixed_diff = _diff_tree_pair(trees[0], fixed_trees[0])
+        except Exception:
+            auto_fixed_diff = None
+
     return {
         "ok": True,
         "valid": True,
@@ -1530,6 +1544,8 @@ def check_sql(sql: str, dialect: str = "bigquery", target_dialect: str | None = 
         "suppressed_by_noqa": suppressed_by_noqa,
         "auto_fixed_sql": auto_fixed_sql,
         "auto_fixed_titles": sorted(auto_fixed_titles),
+        "optimized_diff": optimized_diff,
+        "auto_fixed_diff": auto_fixed_diff,
     }
 
 
@@ -1645,6 +1661,28 @@ def _limit_diff(a: exp.Select, b: exp.Select) -> list[dict]:
     if b_text is None:
         return [{"category": "LIMIT removed", "message": f"{a_text} was removed."}]
     return [{"category": "LIMIT changed", "message": f"Changed from {a_text} to {b_text}."}]
+
+
+def _diff_tree_pair(a, b) -> list[dict] | None:
+    """Same per-clause diff compare_sql uses, but operating directly on two
+    already-parsed trees instead of re-parsing/re-checking from SQL text —
+    used to explain what an optimizer rewrite or auto-fix actually changed,
+    without the wasted work (and recursion risk) of calling compare_sql()
+    from inside check_sql() itself. Scoped to the same safe shape: only a
+    plain, non-CTE Select on both sides; returns None (not a wrong claim)
+    for anything else."""
+    if not (isinstance(a, exp.Select) and isinstance(b, exp.Select)):
+        return None
+    if a.args.get("with_") or a.args.get("with") or b.args.get("with_") or b.args.get("with"):
+        return None
+    diffs = []
+    diffs.extend(_select_list_diff(a, b))
+    diffs.extend(_from_join_diff(a, b))
+    diffs.extend(_where_diff(a, b))
+    diffs.extend(_list_clause_diff(a, b, "group", "GROUP BY", order_matters=False))
+    diffs.extend(_list_clause_diff(a, b, "order", "ORDER BY", order_matters=True))
+    diffs.extend(_limit_diff(a, b))
+    return diffs
 
 
 def compare_sql(sql_a: str, sql_b: str, dialect: str = "bigquery") -> dict:
